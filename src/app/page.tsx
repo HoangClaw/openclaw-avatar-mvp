@@ -1,12 +1,15 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Mic, Keyboard, Send, MoreVertical, Cpu, X, Save } from 'lucide-react';
+import { Mic, Keyboard, Send, MoreVertical, Cpu, X, Save, Paperclip } from 'lucide-react';
+import { useRef } from 'react';
 
 export default function AvatarInterface() {
   const [isRecording, setIsRecording] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [inputText, setInputText] = useState('');
+  const [attachment, setAttachment] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Chat History State
   const [messages, setMessages] = useState<{role: string, text: string}[]>([
@@ -39,19 +42,33 @@ export default function AvatarInterface() {
     setIsRecording(false);
   };
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setAttachment(e.target.files[0]);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim()) return;
+    if (!inputText.trim() && !attachment) return;
     
+    // Format message based on attachment
+    const messageText = attachment 
+      ? `[Attached: ${attachment.name}] ${inputText}`
+      : inputText;
+
     // Append user message immediately
-    setMessages(prev => [...prev, { role: 'user', text: inputText }]);
+    setMessages(prev => [...prev, { role: 'user', text: messageText }]);
     
-    // In the future: send text via WebSocket/REST to OpenClaw
-    console.log("Sending text to", gatewayUrl, "with key length", apiKey.length);
+    // In the future: send text and file via WebSocket/REST to OpenClaw
+    console.log("Sending text to", gatewayUrl);
     console.log("Message:", inputText);
+    if (attachment) console.log("With file:", attachment.name);
     
-    const submittedText = inputText;
+    const submittedText = messageText;
     setInputText('');
+    setAttachment(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
     
     // Mock an AI response for visual testing
     setTimeout(() => {
@@ -187,26 +204,66 @@ export default function AvatarInterface() {
               ))}
             </div>
 
-            {/* Input Form */}
-            <form 
-              onSubmit={handleSubmit}
-              className="p-3 border-t border-zinc-800/80 bg-zinc-900 flex items-center gap-3"
-            >
-              <input 
-                type="text" 
-                className="flex-1 bg-zinc-950 border border-zinc-800 text-white rounded-xl px-4 py-3 focus:outline-none focus:border-zinc-600 focus:ring-1 focus:ring-zinc-600 transition-all placeholder-zinc-500"
-                placeholder="Message Chloe..."
-                value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
-                autoFocus
-              />
-              <button 
-                type="submit" 
-                className="p-3.5 bg-white text-black rounded-xl hover:bg-zinc-200 transition-colors shadow-sm"
+            {/* Input Form Area */}
+            <div className="flex flex-col border-t border-zinc-800/80 bg-zinc-900">
+              
+              {/* Attachment Preview UI */}
+              {attachment && (
+                <div className="px-4 py-2 bg-zinc-800/50 flex items-center justify-between border-b border-zinc-800/80">
+                  <div className="flex items-center gap-2 text-sm text-zinc-300 bg-zinc-800 px-3 py-1.5 rounded-lg border border-zinc-700/50">
+                    <Paperclip className="w-3.5 h-3.5 text-zinc-400" />
+                    <span className="truncate max-w-[200px]">{attachment.name}</span>
+                  </div>
+                  <button 
+                    type="button" 
+                    onClick={() => {
+                      setAttachment(null);
+                      if (fileInputRef.current) fileInputRef.current.value = '';
+                    }} 
+                    className="text-zinc-500 hover:text-red-400 transition-colors p-1"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
+              <form 
+                onSubmit={handleSubmit}
+                className="p-3 flex items-center gap-2"
               >
-                <Send className="w-5 h-5" />
-              </button>
-            </form>
+                {/* Hidden File Input */}
+                <input 
+                  type="file" 
+                  ref={fileInputRef}
+                  onChange={handleFileSelect}
+                  className="hidden"
+                />
+                
+                {/* Attachment Button */}
+                <button 
+                  type="button" 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="p-3 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+                >
+                  <Paperclip className="w-5 h-5" />
+                </button>
+
+                <input 
+                  type="text" 
+                  className="flex-1 bg-zinc-950 border border-zinc-800 text-white rounded-xl px-4 py-3 focus:outline-none focus:border-zinc-600 focus:ring-1 focus:ring-zinc-600 transition-all placeholder-zinc-500"
+                  placeholder="Message Chloe..."
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
+                  autoFocus
+                />
+                <button 
+                  type="submit" 
+                  className="p-3.5 bg-white text-black rounded-xl hover:bg-zinc-200 transition-colors shadow-sm"
+                >
+                  <Send className="w-5 h-5" />
+                </button>
+              </form>
+            </div>
           </div>
         )}
 
