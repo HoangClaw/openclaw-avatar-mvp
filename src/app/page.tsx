@@ -8,6 +8,11 @@ export default function AvatarInterface() {
   const [isTyping, setIsTyping] = useState(false);
   const [inputText, setInputText] = useState('');
   
+  // Chat History State
+  const [messages, setMessages] = useState<{role: string, text: string}[]>([
+    { role: 'ai', text: 'Hello Big Jak. Systems are online. What do you need to do today?' }
+  ]);
+
   // Settings State
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [gatewayUrl, setGatewayUrl] = useState('http://localhost:19000');
@@ -38,12 +43,20 @@ export default function AvatarInterface() {
     e.preventDefault();
     if (!inputText.trim()) return;
     
+    // Append user message immediately
+    setMessages(prev => [...prev, { role: 'user', text: inputText }]);
+    
     // In the future: send text via WebSocket/REST to OpenClaw
     console.log("Sending text to", gatewayUrl, "with key length", apiKey.length);
     console.log("Message:", inputText);
     
+    const submittedText = inputText;
     setInputText('');
-    setIsTyping(false);
+    
+    // Mock an AI response for visual testing
+    setTimeout(() => {
+        setMessages(prev => [...prev, { role: 'ai', text: `I received: "${submittedText}". The OpenClaw backend integration is pending.` }]);
+    }, 1200);
   };
 
   const saveSettings = () => {
@@ -155,27 +168,46 @@ export default function AvatarInterface() {
            )}
         </div>
 
-        {/* TextInput Box */}
+        {/* Chat Window (Revealed when typing) */}
         {isTyping && (
-          <form 
-            onSubmit={handleSubmit}
-            className="mb-6 w-full max-w-md bg-zinc-900/90 backdrop-blur-md p-2 rounded-2xl border border-zinc-700/50 flex items-center shadow-2xl transition-all"
-          >
-            <input 
-              type="text" 
-              className="flex-1 bg-transparent border-none text-white px-4 py-2 focus:outline-none placeholder-zinc-500"
-              placeholder="Type a message..."
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              autoFocus
-            />
-            <button 
-              type="submit" 
-              className="p-3 bg-white text-black rounded-xl hover:bg-zinc-200 transition-colors"
+          <div className="mb-6 w-full max-w-md bg-zinc-900/90 backdrop-blur-md rounded-3xl border border-zinc-700/50 flex flex-col overflow-hidden shadow-[0_20px_60px_-15px_rgba(0,0,0,0.7)] transition-all animate-in slide-in-from-bottom-4 duration-300">
+            
+            {/* Chat History */}
+            <div className="h-64 sm:h-80 p-5 overflow-y-auto flex flex-col gap-4 scroll-smooth">
+              {messages.map((msg, i) => (
+                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`px-4 py-2.5 max-w-[85%] text-sm leading-relaxed ${
+                    msg.role === 'user' 
+                      ? 'bg-zinc-200 text-black rounded-2xl rounded-tr-sm font-medium shadow-sm' 
+                      : 'bg-zinc-800 text-zinc-300 border border-zinc-700/50 rounded-2xl rounded-tl-sm shadow-sm'
+                  }`}>
+                    {msg.text}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Input Form */}
+            <form 
+              onSubmit={handleSubmit}
+              className="p-3 border-t border-zinc-800/80 bg-zinc-900 flex items-center gap-3"
             >
-              <Send className="w-5 h-5" />
-            </button>
-          </form>
+              <input 
+                type="text" 
+                className="flex-1 bg-zinc-950 border border-zinc-800 text-white rounded-xl px-4 py-3 focus:outline-none focus:border-zinc-600 focus:ring-1 focus:ring-zinc-600 transition-all placeholder-zinc-500"
+                placeholder="Message Chloe..."
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                autoFocus
+              />
+              <button 
+                type="submit" 
+                className="p-3.5 bg-white text-black rounded-xl hover:bg-zinc-200 transition-colors shadow-sm"
+              >
+                <Send className="w-5 h-5" />
+              </button>
+            </form>
+          </div>
         )}
 
         {/* Action Buttons */}
