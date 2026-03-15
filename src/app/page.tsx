@@ -11,6 +11,13 @@ export default function AvatarInterface() {
   const [attachment, setAttachment] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
+  // Audio Analysis State
+  const [volume, setVolume] = useState(0);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+
   // Chat History State
   const [messages, setMessages] = useState<{role: string, text: string}[]>([
     { role: 'ai', text: 'Hello Big Jak. Systems are online. What do you need to do today?' }
@@ -38,12 +45,74 @@ export default function AvatarInterface() {
     localStorage.setItem('openclaw_theme', theme);
   }, [theme]);
 
-  const handleVoiceToggle = () => {
+  const handleVoiceToggle = async () => {
     if (isSettingsOpen) return;
-    setIsRecording(!isRecording);
-    setIsTyping(false);
-    // In the future: trigger Web Speech API here
+    
+    if (!isRecording) {
+      // Start Recording & Audio Analysis
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        streamRef.current = stream;
+        
+        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const analyser = audioContext.createAnalyser();
+        const source = audioContext.createMediaStreamSource(stream);
+        
+        analyser.fftSize = 256;
+        source.connect(analyser);
+        
+        audioContextRef.current = audioContext;
+        analyserRef.current = analyser;
+        
+        setIsRecording(true);
+        setIsTyping(false);
+
+        const bufferLength = analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+
+        const updateVolume = () => {
+          if (!analyserRef.current) return;
+          analyserRef.current.getByteFrequencyData(dataArray);
+          
+          let sum = 0;
+          for (let i = 0; i < bufferLength; i++) {
+            sum += dataArray[i];
+          }
+          const average = sum / bufferLength;
+          // Normalize volume between 0 and 1 (with some sensitivity adjustment)
+          setVolume(Math.min(1, average / 100));
+          
+          animationFrameRef.current = requestAnimationFrame(updateVolume);
+        };
+
+        updateVolume();
+      } catch (err) {
+        console.error("Microphone access denied or error:", err);
+      }
+    } else {
+      // Stop Recording & Analysis
+      stopAudioAnalysis();
+      setIsRecording(false);
+    }
   };
+
+  const stopAudioAnalysis = () => {
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+    }
+    setVolume(0);
+  };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => stopAudioAnalysis();
+  }, []);
 
   const handleChatToggle = () => {
     if (isSettingsOpen) return;
@@ -345,13 +414,19 @@ export default function AvatarInterface() {
 
           <button 
             onClick={handleVoiceToggle}
-            className={`p-6 rounded-full shadow-2xl transition-all duration-300 border-4 ${
+            className={`p-6 rounded-full shadow-2xl transition-all duration-75 border-4 ${
               isRecording 
-                ? 'bg-red-500 text-white scale-110 shadow-[0_0_40px_rgba(239,68,68,0.4)] border-red-400' 
+                ? 'bg-red-500 text-white border-red-400' 
                 : (theme === 'dark' ? 'bg-white text-black hover:scale-105 border-transparent' : 'bg-zinc-900 text-white hover:scale-105 border-transparent')
             }`}
+            style={{
+              transform: isRecording ? `scale(${1 + volume * 0.4})` : 'scale(1)',
+              boxShadow: isRecording 
+                ? `0 0 ${20 + volume * 60}px rgba(239, 68, 68, ${0.4 + volume * 0.6})` 
+                : undefined
+            }}
           >
-            <Mic className={`w-10 h-10 ${isRecording ? 'animate-pulse' : ''}`} />
+            <Mic className={`w-10 h-10 ${isRecording ? '' : ''}`} />
           </button>
 
           <button 
