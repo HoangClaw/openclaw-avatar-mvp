@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Mic, Keyboard, Send, MoreVertical } from 'lucide-react';
+import { Mic, Keyboard, Send, MoreVertical, Cpu } from 'lucide-react';
 
 export default function AvatarInterface() {
   const [isRecording, setIsRecording] = useState(false);
@@ -32,6 +32,16 @@ export default function AvatarInterface() {
   return (
     <main className="relative flex flex-col h-screen w-screen bg-black overflow-hidden justify-center items-center">
       
+      {/* Top Project Banner */}
+      <div className="absolute top-8 left-0 w-full flex justify-center z-10 px-4 pointer-events-none">
+        <div className="bg-zinc-900/80 backdrop-blur-md px-6 py-3 rounded-2xl border border-zinc-700/50 shadow-2xl flex items-center gap-4">
+          <Cpu className="w-5 h-5 text-zinc-400" />
+          <h1 className="text-zinc-200 font-medium tracking-wider text-sm sm:text-base flex items-center gap-3">
+            PROJECT CHLOE <span className="text-zinc-700">|</span> <span className="text-zinc-400 font-normal">OpenClaw Avatar MVP</span>
+          </h1>
+        </div>
+      </div>
+
       {/* Default Grey Avatar Placeholder (Full Screen / Centered) */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
         <div className="w-[85vw] h-[85vh] sm:w-[50vw] sm:h-[80vh] bg-zinc-800 rounded-3xl shadow-2xl flex items-center justify-center border border-zinc-700/50">
