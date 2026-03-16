@@ -12,6 +12,31 @@ import {
   type DeviceIdentity,
 } from '@/lib/device-identity';
 
+const PDFJS_CDN_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.9.155';
+
+let _pdfjsMod: any = null;
+
+async function getPdfJs(): Promise<any> {
+  if (_pdfjsMod) return _pdfjsMod;
+  _pdfjsMod = await import(/* webpackIgnore: true */ `${PDFJS_CDN_URL}/pdf.min.mjs`);
+  _pdfjsMod.GlobalWorkerOptions.workerSrc = `${PDFJS_CDN_URL}/pdf.worker.min.mjs`;
+  return _pdfjsMod;
+}
+
+async function extractPdfText(file: File): Promise<string> {
+  const pdfjsLib = await getPdfJs();
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const pages: string[] = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    const text = content.items.map((item: any) => item.str).join(' ');
+    pages.push(text);
+  }
+  return pages.join('\n\n');
+}
+
 const CLIENT_ID = "openclaw-control-ui";
 const CLIENT_MODE = "webchat";
 const CLIENT_VERSION = "1.0.0";
@@ -379,16 +404,70 @@ export default function AvatarInterface() {
     }
   };
 
+  const [isUploading, setIsUploading] = useState(false);
+
+  const readFileAsDataUrl = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsDataURL(file);
+    });
+
+  const sendViaResponsesApi = async (
+    contentParts: any[],
+    msgId: string,
+  ) => {
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-gateway-url': gatewayUrl,
+        'x-gateway-token': apiKey || '',
+      },
+      body: JSON.stringify({
+        model: 'openclaw',
+        input: [
+          {
+            type: 'message',
+            role: 'user',
+            content: contentParts,
+          },
+        ],
+      }),
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error ?? `API error (${response.status})`);
+    }
+
+    const outputText = result.output
+      ?.filter((item: any) => item.type === 'message')
+      ?.flatMap((item: any) => item.content)
+      ?.filter((c: any) => c.type === 'output_text')
+      ?.map((c: any) => c.text)
+      ?.join('\n\n');
+
+    if (outputText) {
+      setMessages(prev => prev.map(m =>
+        m.id === msgId ? { ...m, text: outputText } : m
+      ));
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim() && !attachment) return;
-    
-    const messageText = attachment 
-      ? `[Attached: ${attachment.name}] ${inputText}`
-      : inputText;
+
+    const currentInput = inputText.trim();
+    const currentAttachment = attachment;
+    const messageText = currentAttachment
+      ? `[Attached: ${currentAttachment.name}] ${currentInput}`
+      : currentInput;
 
     setMessages(prev => [...prev, { role: 'user', text: messageText }]);
-    
+
     setInputText('');
     setAttachment(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -401,23 +480,109 @@ export default function AvatarInterface() {
     const msgId = "msg-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
     const idempotencyKey = "idk-" + Date.now();
 
-    // Add placeholder and register the run before sending
     setMessages(prev => [...prev, { role: 'ai', text: '...', id: msgId }]);
     activeRunsRef.current.set(idempotencyKey, msgId);
 
     try {
-      const result = await sendRequest("agent", {
-        message: messageText,
-        sessionKey: "agent:main:main",
-        idempotencyKey,
-      });
+      if (currentAttachment) {
+        setIsUploading(true);
+        try {
+          const isImage = currentAttachment.type.startsWith('image/');
+          const isPdf = currentAttachment.type === 'application/pdf'
+            || currentAttachment.name.toLowerCase().endsWith('.pdf');
 
-      // The final "res" frame contains the complete response
-      if (result?.result?.payloads?.[0]?.text) {
-        setMessages(prev => prev.map(m =>
-          m.id === msgId ? { ...m, text: result.result.payloads[0].text } : m
-        ));
+          if (isImage) {
+            const dataUrl = await readFileAsDataUrl(currentAttachment);
+            const base64Data = dataUrl.split(',')[1];
+            const contentParts: any[] = [
+              {
+                type: 'input_image',
+                source: {
+                  type: 'base64',
+                  media_type: currentAttachment.type,
+                  data: base64Data,
+                },
+              },
+              {
+                type: 'input_text',
+                text: currentInput || `Describe this image (${currentAttachment.name})`,
+              },
+            ];
+            await sendViaResponsesApi(contentParts, msgId);
+          } else if (isPdf) {
+            const dataUrl = await readFileAsDataUrl(currentAttachment);
+            const base64Data = dataUrl.split(',')[1];
+            const pdfParts: any[] = [
+              {
+                type: 'input_file',
+                source: {
+                  type: 'base64',
+                  media_type: 'application/pdf',
+                  data: base64Data,
+                  filename: currentAttachment.name,
+                },
+              },
+              {
+                type: 'input_text',
+                text: currentInput || 'Analyze this document.',
+              },
+            ];
+            try {
+              await sendViaResponsesApi(pdfParts, msgId);
+            } catch {
+              const pdfText = await extractPdfText(currentAttachment);
+              const agentMessage =
+                `[File: ${currentAttachment.name}]\n\n--- FILE CONTENT ---\n${pdfText}\n--- END FILE CONTENT ---\n\n${currentInput || 'Analyze this document.'}`;
+              const result = await sendRequest("agent", {
+                message: agentMessage,
+                sessionKey: "agent:main:main",
+                idempotencyKey,
+              });
+              if (result?.result?.payloads?.[0]?.text) {
+                setMessages(prev => prev.map(m =>
+                  m.id === msgId ? { ...m, text: result.result.payloads[0].text } : m
+                ));
+              }
+            }
+          } else {
+            const textContent = await currentAttachment.text();
+            const agentMessage =
+              `[File: ${currentAttachment.name}]\n\n--- FILE CONTENT ---\n${textContent}\n--- END FILE CONTENT ---\n\n${currentInput || 'Analyze this file.'}`;
+            const result = await sendRequest("agent", {
+              message: agentMessage,
+              sessionKey: "agent:main:main",
+              idempotencyKey,
+            });
+            if (result?.result?.payloads?.[0]?.text) {
+              setMessages(prev => prev.map(m =>
+                m.id === msgId ? { ...m, text: result.result.payloads[0].text } : m
+              ));
+            }
+          }
+        } catch (uploadErr: any) {
+          console.error("File processing error:", uploadErr);
+          setMessages(prev => prev.map(m =>
+            m.id === msgId ? { ...m, text: `Error processing file: ${uploadErr.message ?? 'unknown'}` } : m
+          ));
+          activeRunsRef.current.delete(idempotencyKey);
+          setIsUploading(false);
+          return;
+        } finally {
+          setIsUploading(false);
+        }
+      } else {
+        const result = await sendRequest("agent", {
+          message: currentInput,
+          sessionKey: "agent:main:main",
+          idempotencyKey,
+        });
+        if (result?.result?.payloads?.[0]?.text) {
+          setMessages(prev => prev.map(m =>
+            m.id === msgId ? { ...m, text: result.result.payloads[0].text } : m
+          ));
+        }
       }
+
       activeRunsRef.current.delete(idempotencyKey);
     } catch (err: any) {
       console.error("Agent error:", err);
@@ -578,6 +743,10 @@ export default function AvatarInterface() {
            {isRecording ? (
              <span className="animate-pulse bg-red-500/20 text-red-400 px-4 py-1.5 rounded-full text-sm font-medium border border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.2)]">
                Listening...
+             </span>
+           ) : isUploading ? (
+             <span className="animate-pulse bg-blue-500/20 text-blue-400 px-4 py-1.5 rounded-full text-sm font-medium border border-blue-500/30 shadow-[0_0_15px_rgba(59,130,246,0.2)]">
+               Uploading file...
              </span>
            ) : gwConnected ? (
              <span className={`text-sm font-medium transition-colors ${theme === 'dark' ? 'text-emerald-500' : 'text-emerald-600'}`}>
