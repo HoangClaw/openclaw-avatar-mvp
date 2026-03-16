@@ -205,7 +205,7 @@ export default function AvatarInterface() {
             style={{
               background: theme === 'dark' 
                 ? 'radial-gradient(circle at center, rgba(0,0,0,0) 30%, rgba(0,0,0,0.5) 100%)'
-                : 'radial-gradient(circle at center, rgba(255,255,255,0) 30%, rgba(0,0,0,0.05) 100%)'
+                : 'radial-gradient(circle at center, rgba(255,255,255,0) 30%, rgba(0,0,0,0.4) 100%)'
             }}
           ></div>
       </div>
