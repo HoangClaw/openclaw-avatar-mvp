@@ -164,15 +164,15 @@ export default function AvatarInterface() {
     <main className={`relative flex flex-col h-screen w-screen overflow-hidden justify-center items-center transition-colors duration-500 ${theme === 'dark' ? 'bg-black' : 'bg-zinc-50'}`}>
       
       {/* Top Project Banner */}
-      <div className="absolute top-8 left-0 w-full flex justify-center z-10 px-4 pointer-events-none transition-opacity duration-300" style={{ opacity: isSettingsOpen ? 0.2 : 1 }}>
-        <div className={`backdrop-blur-md px-6 py-3 rounded-2xl border shadow-2xl flex items-center gap-4 transition-all duration-300 ${
+      <div className="absolute top-4 sm:top-8 left-0 w-full flex justify-center z-10 px-4 pointer-events-none transition-opacity duration-300" style={{ opacity: isSettingsOpen ? 0.2 : 1 }}>
+        <div className={`backdrop-blur-md px-3 sm:px-6 py-2 sm:py-3 rounded-2xl border shadow-2xl flex items-center gap-2 sm:gap-4 transition-all duration-300 ${
           theme === 'dark' 
             ? 'bg-zinc-900/80 border-zinc-700/50' 
             : 'bg-white/80 border-zinc-200'
         }`}>
-          <Cpu className={`w-5 h-5 transition-colors ${theme === 'dark' ? 'text-zinc-400' : 'text-zinc-500'}`} />
-          <h1 className={`font-medium tracking-wider text-sm sm:text-base flex items-center gap-3 transition-colors ${theme === 'dark' ? 'text-zinc-200' : 'text-zinc-800'}`}>
-            PROJECT CHLOE <span className={theme === 'dark' ? 'text-zinc-700' : 'text-zinc-300'}>|</span> <span className={`font-normal ${theme === 'dark' ? 'text-zinc-400' : 'text-zinc-500'}`}>OpenClaw Avatar MVP</span>
+          <Cpu className={`w-4 h-4 sm:w-5 sm:h-5 transition-colors ${theme === 'dark' ? 'text-zinc-400' : 'text-zinc-500'}`} />
+          <h1 className={`font-medium tracking-wider text-xs sm:text-sm md:text-base flex items-center gap-2 sm:gap-3 transition-colors ${theme === 'dark' ? 'text-zinc-200' : 'text-zinc-800'}`}>
+            PROJECT CHLOE <span className={`hidden sm:inline ${theme === 'dark' ? 'text-zinc-700' : 'text-zinc-300'}`}>|</span> <span className={`hidden sm:inline font-normal ${theme === 'dark' ? 'text-zinc-400' : 'text-zinc-500'}`}>OpenClaw Avatar MVP</span>
           </h1>
         </div>
       </div>
@@ -187,7 +187,7 @@ export default function AvatarInterface() {
       >
          {/* Temporary SVG placeholder */}
          <svg
-            className={`w-40 h-40 transition-colors duration-300 ${theme === 'dark' ? 'text-zinc-700' : 'text-zinc-400'}`}
+            className={`w-24 h-24 sm:w-40 sm:h-40 transition-colors duration-300 ${theme === 'dark' ? 'text-zinc-700' : 'text-zinc-400'}`}
             fill="currentColor"
             viewBox="0 0 20 20"
             xmlns="http://www.w3.org/2000/svg"
@@ -213,11 +213,11 @@ export default function AvatarInterface() {
       {/* Settings Modal Layer */}
       {isSettingsOpen && (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className={`border rounded-3xl w-full max-w-md shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden animate-in fade-in zoom-in duration-200 transition-colors ${
+          <div className={`border rounded-3xl w-full max-w-md max-h-[85vh] overflow-y-auto shadow-[0_0_50px_rgba(0,0,0,0.8)] animate-in fade-in zoom-in duration-200 transition-colors ${
             theme === 'dark' ? 'bg-zinc-900 border-zinc-700' : 'bg-white border-zinc-200'
           }`}>
             {/* Modal Header */}
-            <div className={`flex justify-between items-center px-6 py-4 border-b ${theme === 'dark' ? 'border-zinc-800' : 'border-zinc-100'}`}>
+            <div className={`flex justify-between items-center px-4 sm:px-6 py-3 sm:py-4 border-b ${theme === 'dark' ? 'border-zinc-800' : 'border-zinc-100'}`}>
               <h2 className={`font-medium text-lg flex items-center gap-2 ${theme === 'dark' ? 'text-white' : 'text-zinc-900'}`}>
                 <Cpu className={`w-5 h-5 ${theme === 'dark' ? 'text-zinc-400' : 'text-zinc-500'}`} /> OpenClaw Connection
               </h2>
@@ -230,7 +230,7 @@ export default function AvatarInterface() {
             </div>
             
             {/* Modal Body */}
-            <div className="p-6 space-y-6">
+            <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
               {/* Theme Toggle Section */}
               <div className="flex items-center justify-between p-4 rounded-2xl border transition-all duration-300 ${
                 theme === 'dark' ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-50 border-zinc-200'
@@ -282,7 +282,7 @@ export default function AvatarInterface() {
             </div>
 
             {/* Modal Footer */}
-            <div className={`px-6 py-4 border-t flex justify-end ${theme === 'dark' ? 'border-zinc-800' : 'border-zinc-100'}`}>
+            <div className={`px-4 sm:px-6 py-3 sm:py-4 border-t flex justify-end ${theme === 'dark' ? 'border-zinc-800' : 'border-zinc-100'}`}>
               <button 
                 onClick={saveSettings}
                 className={`px-6 py-2.5 rounded-xl font-medium transition-colors flex items-center gap-2 shadow-sm ${
@@ -297,7 +297,7 @@ export default function AvatarInterface() {
       )}
 
       {/* Control Overlay - Bottom Anchored */}
-      <div className={`absolute bottom-10 left-0 w-full flex flex-col items-center justify-end z-30 px-4 transition-all duration-300 ${isSettingsOpen ? 'opacity-0 pointer-events-none translate-y-4' : 'opacity-100'}`}>
+      <div className={`absolute bottom-4 sm:bottom-8 left-0 w-full max-h-[calc(100vh-6rem)] flex flex-col items-center justify-end z-30 px-4 transition-all duration-300 ${isSettingsOpen ? 'opacity-0 pointer-events-none translate-y-4' : 'opacity-100'}`}>
         
         {/* Status Indicator */}
         <div className="mb-6 h-8 flex items-center">
@@ -314,12 +314,12 @@ export default function AvatarInterface() {
 
         {/* Chat Window */}
         {isTyping && (
-          <div className={`mb-6 w-full max-w-md backdrop-blur-md rounded-3xl border flex flex-col overflow-hidden shadow-[0_20px_60px_-15px_rgba(0,0,0,0.7)] transition-all animate-in slide-in-from-bottom-4 duration-300 ${
+          <div className={`mb-4 sm:mb-6 w-full sm:max-w-md max-h-[55vh] backdrop-blur-md rounded-3xl border flex flex-col overflow-hidden shadow-[0_20px_60px_-15px_rgba(0,0,0,0.7)] transition-all animate-in slide-in-from-bottom-4 duration-300 ${
             theme === 'dark' ? 'bg-zinc-900/90 border-zinc-700/50' : 'bg-white/90 border-zinc-200'
           }`}>
             
             {/* Chat History */}
-            <div className="h-64 sm:h-80 p-5 overflow-y-auto flex flex-col gap-4 scroll-smooth">
+            <div className="flex-1 min-h-0 max-h-[35vh] sm:max-h-[40vh] p-4 sm:p-5 overflow-y-auto flex flex-col gap-3 sm:gap-4 scroll-smooth">
               {messages.map((msg, i) => (
                 <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   <div className={`px-4 py-2.5 max-w-[85%] text-sm leading-relaxed shadow-sm transition-all duration-300 ${
@@ -399,22 +399,22 @@ export default function AvatarInterface() {
         )}
 
         {/* Action Buttons */}
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-4 sm:gap-6">
           
           <button 
             onClick={() => setIsSettingsOpen(true)}
-            className={`p-4 rounded-full transition-all backdrop-blur-sm shadow-lg border ${
+            className={`p-3 sm:p-4 rounded-full transition-all backdrop-blur-sm shadow-lg border ${
               theme === 'dark' 
                 ? 'bg-zinc-800/80 text-zinc-400 hover:text-white hover:bg-zinc-700 border-zinc-700/50' 
                 : 'bg-white/80 text-zinc-500 hover:text-black hover:bg-zinc-100 border-zinc-200'
             }`}
           >
-            <MoreVertical className="w-6 h-6" />
+            <MoreVertical className="w-5 h-5 sm:w-6 sm:h-6" />
           </button>
 
           <button 
             onClick={handleVoiceToggle}
-            className={`p-6 rounded-full shadow-2xl transition-all duration-75 border-4 ${
+            className={`p-4 sm:p-6 rounded-full shadow-2xl transition-all duration-75 border-4 ${
               isRecording 
                 ? 'bg-red-500 text-white border-red-400' 
                 : (theme === 'dark' ? 'bg-white text-black hover:scale-105 border-transparent' : 'bg-zinc-900 text-white hover:scale-105 border-transparent')
@@ -426,18 +426,18 @@ export default function AvatarInterface() {
                 : undefined
             }}
           >
-            <Mic className={`w-10 h-10 ${isRecording ? '' : ''}`} />
+            <Mic className="w-7 h-7 sm:w-10 sm:h-10" />
           </button>
 
           <button 
             onClick={handleChatToggle}
-            className={`p-4 rounded-full transition-all backdrop-blur-sm shadow-lg border ${
+            className={`p-3 sm:p-4 rounded-full transition-all backdrop-blur-sm shadow-lg border ${
               isTyping 
                 ? (theme === 'dark' ? 'bg-white text-black border-transparent' : 'bg-zinc-900 text-white border-transparent')
                 : (theme === 'dark' ? 'bg-zinc-800/80 text-zinc-400 hover:text-white hover:bg-zinc-700 border-zinc-700/50' : 'bg-white/80 text-zinc-500 hover:text-black hover:bg-zinc-100 border-zinc-200')
             }`}
           >
-            <Keyboard className="w-6 h-6" />
+            <Keyboard className="w-5 h-5 sm:w-6 sm:h-6" />
           </button>
         </div>
 
