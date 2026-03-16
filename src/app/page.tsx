@@ -148,10 +148,36 @@ export default function AvatarInterface() {
     setAttachment(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
     
-    // Mock an AI response for visual testing
-    setTimeout(() => {
-        setMessages(prev => [...prev, { role: 'ai', text: `I received: "${submittedText}". The OpenClaw backend integration is pending.` }]);
-    }, 1200);
+    // Send real message to OpenClaw via WebSocket
+    try {
+      const wsUrl = gatewayUrl.replace('http', 'ws');
+      const wsUrlWithAuth = apiKey ? `${wsUrl}/?token=${apiKey}` : wsUrl;
+      const ws = new WebSocket(wsUrlWithAuth);
+      
+      ws.onopen = () => {
+        // Basic OpenClaw Gateway JSON-RPC envelope
+        ws.send(JSON.stringify({
+          jsonrpc: "2.0",
+          method: "message", 
+          params: { text: messageText },
+          id: Date.now()
+        }));
+      };
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data && data.params && data.params.text) {
+          setMessages(prev => [...prev, { role: 'ai', text: data.params.text }]);
+        }
+      };
+
+      ws.onerror = (err) => {
+        console.error("WebSocket error:", err);
+        setMessages(prev => [...prev, { role: 'ai', text: "Connection error. Is my gateway running?" }]);
+      };
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const saveSettings = () => {
