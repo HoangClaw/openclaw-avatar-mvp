@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Mic, Keyboard, Send, MoreVertical, Cpu, X, Save, Paperclip, Sun, Moon } from 'lucide-react';
 import { useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   loadOrCreateDeviceIdentity,
   buildDeviceAuthPayload,
@@ -603,7 +605,57 @@ export default function AvatarInterface() {
                       ? (theme === 'dark' ? 'bg-zinc-200 text-black rounded-2xl rounded-tr-sm font-medium' : 'bg-zinc-900 text-white rounded-2xl rounded-tr-sm font-medium')
                       : (theme === 'dark' ? 'bg-zinc-800 text-zinc-300 border border-zinc-700/50 rounded-2xl rounded-tl-sm' : 'bg-zinc-100 text-zinc-700 border border-zinc-200 rounded-2xl rounded-tl-sm')
                   }`}>
-                    {msg.text}
+                    <div className={`prose prose-sm max-w-none break-words ${
+                      msg.role === 'user' 
+                        ? (theme === 'dark' ? 'prose-zinc' : 'prose-invert prose-zinc') 
+                        : (theme === 'dark' ? 'prose-invert prose-zinc' : 'prose-zinc')
+                    } prose-pre:bg-zinc-950 prose-pre:border prose-pre:border-white/10 prose-blockquote:border-l-4 prose-blockquote:pl-4 prose-blockquote:italic prose-table:border-collapse prose-th:border prose-th:border-zinc-500/30 prose-th:px-3 prose-th:py-2 prose-td:border prose-td:border-zinc-500/30 prose-td:px-3 prose-td:py-2 [&_p]:leading-relaxed [&_ul]:list-disc [&_ol]:list-decimal [&_li]:ml-4`}>
+                      <ReactMarkdown 
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          code({ node, className, children, ...props }: any) {
+                            const match = /language-(\w+)/.exec(className || '');
+                            const isInline = !match && !node?.position?.start?.line !== node?.position?.end?.line;
+                            return !isInline ? (
+                              <pre className="overflow-x-auto p-3 rounded-lg bg-black/50 my-2 border border-white/10">
+                                <code className={className} {...props}>
+                                  {children}
+                                </code>
+                              </pre>
+                            ) : (
+                              <code className="bg-zinc-500/20 px-1.5 py-0.5 rounded text-xs font-mono" {...props}>
+                                {children}
+                              </code>
+                            );
+                          },
+                          table({ children }) {
+                            return (
+                              <div className="my-4 overflow-x-auto">
+                                <table className="w-full border-collapse border border-zinc-500/30 text-xs sm:text-sm [&_th]:border [&_th]:border-zinc-500/30 [&_th]:p-2 [&_td]:border [&_td]:border-zinc-500/30 [&_td]:p-2 [&_thead]:bg-zinc-500/10">
+                                  {children}
+                                </table>
+                              </div>
+                            );
+                          },
+                          a({ children, href }) {
+                            return (
+                              <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
+                                {children}
+                              </a>
+                            );
+                          },
+                          blockquote({ children }) {
+                            return (
+                              <blockquote className="border-l-4 border-zinc-500/50 pl-4 py-1 my-3 italic opacity-90">
+                                {children}
+                              </blockquote>
+                            );
+                          }
+                        }}
+                      >
+                        {msg.text}
+                      </ReactMarkdown>
+                    </div>
                   </div>
                 </div>
               ))}
