@@ -424,6 +424,7 @@ export default function AvatarInterface() {
         'Content-Type': 'application/json',
         'x-gateway-url': gatewayUrl,
         'x-gateway-token': apiKey || '',
+        'x-openclaw-session-key': 'agent:main:main',
       },
       body: JSON.stringify({
         model: 'openclaw',

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 export async function POST(request: NextRequest) {
   const gatewayUrl = request.headers.get('x-gateway-url');
   const token = request.headers.get('x-gateway-token');
+  const sessionKey = request.headers.get('x-openclaw-session-key');
 
   if (!gatewayUrl) {
     return NextResponse.json(
@@ -22,20 +23,9 @@ export async function POST(request: NextRequest) {
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }
-
-    const debugBody = JSON.parse(JSON.stringify(body));
-    if (debugBody.input && Array.isArray(debugBody.input)) {
-      debugBody.input = debugBody.input.map((item: any) => {
-        if (item.content && Array.isArray(item.content)) {
-          item.content = item.content.map((c: any) => {
-            if (c.source?.data) return { ...c, source: { ...c.source, data: `<base64 ${c.source.data.length} chars>` } };
-            return c;
-          });
-        }
-        return item;
-      });
+    if (sessionKey) {
+      headers['x-openclaw-session-key'] = sessionKey;
     }
-    console.log('Request to /v1/responses:', JSON.stringify(debugBody, null, 2));
 
     const response = await fetch(responsesUrl, {
       method: 'POST',
@@ -45,7 +35,6 @@ export async function POST(request: NextRequest) {
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => response.statusText);
-      console.error('Gateway error response:', response.status, errorText);
       return NextResponse.json(
         { error: `Gateway error (${response.status}): ${errorText}` },
         { status: response.status }
