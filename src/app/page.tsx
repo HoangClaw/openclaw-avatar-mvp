@@ -1,8 +1,24 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Mic, Keyboard, Send, MoreVertical, Cpu, X, Save, Paperclip, Sun, Moon } from 'lucide-react';
 import { useRef } from 'react';
+import {
+  loadOrCreateDeviceIdentity,
+  buildDeviceAuthPayload,
+  signDevicePayload,
+  type DeviceIdentity,
+} from '@/lib/device-identity';
+
+const CLIENT_ID = "openclaw-control-ui";
+const CLIENT_MODE = "webchat";
+const CLIENT_VERSION = "1.0.0";
+const ROLE = "operator";
+const SCOPES = ["operator.admin", "operator.approvals", "operator.pairing"];
+
+function generateUUID(): string {
+  return crypto.randomUUID();
+}
 
 export default function AvatarInterface() {
   const [isRecording, setIsRecording] = useState(false);
@@ -19,15 +35,25 @@ export default function AvatarInterface() {
   const animationFrameRef = useRef<number | null>(null);
 
   // Chat History State
-  const [messages, setMessages] = useState<{role: string, text: string}[]>([
+  const [messages, setMessages] = useState<{role: string, text: string, id?: string}[]>([
     { role: 'ai', text: 'Hello Big Jak. Systems are online. What do you need to do today?' }
   ]);
 
   // Settings State
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [gatewayUrl, setGatewayUrl] = useState('http://localhost:19000');
+  const [gatewayUrl, setGatewayUrl] = useState('http://localhost:18789');
   const [apiKey, setApiKey] = useState('');
-  const [theme, setTheme] = useState('dark'); // 'dark' or 'light'
+  const [theme, setTheme] = useState('dark');
+
+  // Gateway WebSocket State
+  const wsRef = useRef<WebSocket | null>(null);
+  const [gwConnected, setGwConnected] = useState(false);
+  const pendingRef = useRef<Map<string, { resolve: (v: any) => void; reject: (e: any) => void }>>(new Map());
+  const deviceRef = useRef<DeviceIdentity | null>(null);
+  const connectSentRef = useRef(false);
+  const connectNonceRef = useRef<string | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeRunsRef = useRef<Map<string, string>>(new Map()); // runId -> messageId
 
   // Load saved settings from local storage on mount
   useEffect(() => {
@@ -44,6 +70,231 @@ export default function AvatarInterface() {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('openclaw_theme', theme);
   }, [theme]);
+
+  // --- Gateway WebSocket Management ---
+
+  const sendRequest = useCallback((method: string, params: any): Promise<any> => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      return Promise.reject(new Error("gateway not connected"));
+    }
+    const id = generateUUID();
+    const frame = { type: "req", id, method, params };
+    return new Promise((resolve, reject) => {
+      pendingRef.current.set(id, { resolve, reject });
+      ws.send(JSON.stringify(frame));
+    });
+  }, []);
+
+  const sendConnect = useCallback(async (ws: WebSocket, token: string) => {
+    if (connectSentRef.current) return;
+    connectSentRef.current = true;
+
+    let device: any = undefined;
+    const isSecureContext = typeof crypto !== "undefined" && !!crypto.subtle;
+
+    if (isSecureContext) {
+      if (!deviceRef.current) {
+        deviceRef.current = await loadOrCreateDeviceIdentity();
+      }
+      const identity = deviceRef.current;
+      const signedAtMs = Date.now();
+      const nonce = connectNonceRef.current ?? "";
+      const payload = buildDeviceAuthPayload({
+        deviceId: identity.deviceId,
+        clientId: CLIENT_ID,
+        clientMode: CLIENT_MODE,
+        role: ROLE,
+        scopes: SCOPES,
+        signedAtMs,
+        token: token || null,
+        nonce,
+      });
+      const signature = await signDevicePayload(identity.privateKey, payload);
+      device = {
+        id: identity.deviceId,
+        publicKey: identity.publicKey,
+        signature,
+        signedAt: signedAtMs,
+        nonce,
+      };
+    }
+
+    const params = {
+      minProtocol: 3,
+      maxProtocol: 3,
+      client: {
+        id: CLIENT_ID,
+        version: CLIENT_VERSION,
+        platform: navigator.platform ?? "web",
+        mode: CLIENT_MODE,
+      },
+      role: ROLE,
+      scopes: SCOPES,
+      device,
+      caps: ["tool-events"],
+      auth: token ? { token } : undefined,
+      userAgent: navigator.userAgent,
+      locale: navigator.language,
+    };
+
+    try {
+      const hello = await sendRequest("connect", params);
+      console.log("Gateway connected:", hello?.type);
+      setGwConnected(true);
+    } catch (err: any) {
+      console.error("Gateway connect failed:", err.message ?? err);
+      setMessages(prev => [...prev, {
+        role: 'ai',
+        text: `Gateway auth failed: ${err.message ?? 'unknown error'}. Check your token and gateway settings.`
+      }]);
+      ws.close(4008, "connect failed");
+    }
+  }, [sendRequest]);
+
+  const handleGatewayMessage = useCallback((raw: string) => {
+    let parsed: any;
+    try { parsed = JSON.parse(raw); } catch { return; }
+
+    if (parsed.type === "event") {
+      // Handle connect challenge
+      if (parsed.event === "connect.challenge") {
+        const nonce = parsed.payload?.nonce;
+        if (nonce) {
+          connectNonceRef.current = nonce;
+          const ws = wsRef.current;
+          const token = apiKey;
+          if (ws) void sendConnect(ws, token);
+        }
+        return;
+      }
+
+      // Handle agent streaming events
+      if (parsed.event === "agent") {
+        const { stream, data } = parsed.payload ?? {};
+        if (stream === "assistant" && data?.text) {
+          const runId = parsed.payload?.runId;
+          if (runId && activeRunsRef.current.has(runId)) {
+            const msgId = activeRunsRef.current.get(runId)!;
+            setMessages(prev => prev.map(m =>
+              m.id === msgId ? { ...m, text: data.text } : m
+            ));
+          }
+        }
+        return;
+      }
+
+      // Handle chat events (final state)
+      if (parsed.event === "chat") {
+        const { state, message: msg, runId } = parsed.payload ?? {};
+        if (state === "final" && msg?.content?.[0]?.text && runId) {
+          if (activeRunsRef.current.has(runId)) {
+            const msgId = activeRunsRef.current.get(runId)!;
+            const finalText = msg.content[0].text;
+            setMessages(prev => prev.map(m =>
+              m.id === msgId ? { ...m, text: finalText } : m
+            ));
+            activeRunsRef.current.delete(runId);
+          }
+        }
+        return;
+      }
+      return;
+    }
+
+    // Handle responses
+    if (parsed.type === "res") {
+      const pending = pendingRef.current.get(parsed.id);
+      if (pending) {
+        // For agent requests, only resolve on the final "ok"/"error" response,
+        // not the initial "accepted" acknowledgment
+        const status = parsed.payload?.status;
+        if (parsed.ok && status === "accepted") {
+          // Store the runId mapping: the server-assigned runId may differ
+          return;
+        }
+        pendingRef.current.delete(parsed.id);
+        if (parsed.ok) {
+          pending.resolve(parsed.payload);
+        } else {
+          pending.reject(new Error(parsed.error?.message ?? "request failed"));
+        }
+      }
+    }
+  }, [apiKey, sendConnect]);
+
+  const connectGateway = useCallback(() => {
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+
+    let wsUrl = gatewayUrl;
+    if (wsUrl.startsWith('http')) {
+      wsUrl = wsUrl.replace(/^http/, 'ws');
+    } else if (!wsUrl.startsWith('ws')) {
+      wsUrl = `ws://${wsUrl}`;
+    }
+    wsUrl = wsUrl.replace(/\/$/, '');
+
+    console.log("Connecting to gateway:", wsUrl);
+    connectSentRef.current = false;
+    connectNonceRef.current = null;
+    setGwConnected(false);
+
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    // Queue connect with a timeout in case no challenge arrives
+    let connectTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+      void sendConnect(ws, apiKey);
+    }, 750);
+
+    ws.onopen = () => {
+      console.log("WebSocket open");
+    };
+
+    ws.onmessage = (ev) => {
+      if (connectTimer && !connectSentRef.current) {
+        // Challenge arrived before timer, cancel fallback
+        const raw = ev.data as string;
+        try {
+          const p = JSON.parse(raw);
+          if (p.type === "event" && p.event === "connect.challenge") {
+            clearTimeout(connectTimer);
+            connectTimer = null;
+          }
+        } catch {}
+      }
+      handleGatewayMessage(ev.data as string);
+    };
+
+    ws.onclose = (ev) => {
+      console.log("WebSocket closed:", ev.code, ev.reason);
+      wsRef.current = null;
+      setGwConnected(false);
+      pendingRef.current.forEach((p) => {
+        p.reject(new Error(`gateway closed (${ev.code})`));
+      });
+      pendingRef.current.clear();
+    };
+
+    ws.onerror = () => { /* close handler fires next */ };
+  }, [gatewayUrl, apiKey, handleGatewayMessage, sendConnect]);
+
+  // Connect/reconnect when settings change
+  useEffect(() => {
+    if (!gatewayUrl || !apiKey) return;
+    connectGateway();
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    };
+  }, [connectGateway]);
+
+  // --- Audio / Voice ---
 
   const handleVoiceToggle = async () => {
     if (isSettingsOpen) return;
@@ -126,57 +377,52 @@ export default function AvatarInterface() {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim() && !attachment) return;
     
-    // Format message based on attachment
     const messageText = attachment 
       ? `[Attached: ${attachment.name}] ${inputText}`
       : inputText;
 
-    // Append user message immediately
     setMessages(prev => [...prev, { role: 'user', text: messageText }]);
     
-    // In the future: send text and file via WebSocket/REST to OpenClaw
-    console.log("Sending text to", gatewayUrl);
-    console.log("Message:", inputText);
-    if (attachment) console.log("With file:", attachment.name);
-    
-    const submittedText = messageText;
     setInputText('');
     setAttachment(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
-    
-    // Send real message to OpenClaw via WebSocket
+
+    if (!gwConnected) {
+      setMessages(prev => [...prev, { role: 'ai', text: 'Not connected to gateway. Check settings and try again.' }]);
+      return;
+    }
+
+    const msgId = "msg-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
+    const idempotencyKey = "idk-" + Date.now();
+
+    // Add placeholder and register the run before sending
+    setMessages(prev => [...prev, { role: 'ai', text: '...', id: msgId }]);
+    activeRunsRef.current.set(idempotencyKey, msgId);
+
     try {
-      const wsUrl = gatewayUrl.replace('http', 'ws');
-      const wsUrlWithAuth = apiKey ? `${wsUrl}/?token=${apiKey}` : wsUrl;
-      const ws = new WebSocket(wsUrlWithAuth);
-      
-      ws.onopen = () => {
-        // Basic OpenClaw Gateway JSON-RPC envelope
-        ws.send(JSON.stringify({
-          jsonrpc: "2.0",
-          method: "message", 
-          params: { text: messageText },
-          id: Date.now()
-        }));
-      };
+      const result = await sendRequest("agent", {
+        message: messageText,
+        sessionKey: "agent:main:main",
+        idempotencyKey,
+      });
 
-      ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        if (data && data.params && data.params.text) {
-          setMessages(prev => [...prev, { role: 'ai', text: data.params.text }]);
-        }
-      };
-
-      ws.onerror = (err) => {
-        console.error("WebSocket error:", err);
-        setMessages(prev => [...prev, { role: 'ai', text: "Connection error. Is my gateway running?" }]);
-      };
-    } catch (err) {
-      console.error(err);
+      // The final "res" frame contains the complete response
+      if (result?.result?.payloads?.[0]?.text) {
+        setMessages(prev => prev.map(m =>
+          m.id === msgId ? { ...m, text: result.result.payloads[0].text } : m
+        ));
+      }
+      activeRunsRef.current.delete(idempotencyKey);
+    } catch (err: any) {
+      console.error("Agent error:", err);
+      setMessages(prev => prev.map(m =>
+        m.id === msgId ? { ...m, text: `Error: ${err.message ?? 'unknown'}` } : m
+      ));
+      activeRunsRef.current.delete(idempotencyKey);
     }
   };
 
@@ -331,9 +577,13 @@ export default function AvatarInterface() {
              <span className="animate-pulse bg-red-500/20 text-red-400 px-4 py-1.5 rounded-full text-sm font-medium border border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.2)]">
                Listening...
              </span>
+           ) : gwConnected ? (
+             <span className={`text-sm font-medium transition-colors ${theme === 'dark' ? 'text-emerald-500' : 'text-emerald-600'}`}>
+               Connected
+             </span>
            ) : (
              <span className={`text-sm font-medium transition-colors ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-400'}`}>
-               Ready
+               {apiKey ? 'Connecting...' : 'Not configured'}
              </span>
            )}
         </div>
