@@ -53,6 +53,7 @@ export default function AvatarInterface() {
   const [inputText, setInputText] = useState('');
   const [attachment, setAttachment] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
   
   // Audio Analysis State
   const [volume, setVolume] = useState(0);
@@ -97,6 +98,16 @@ export default function AvatarInterface() {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('openclaw_theme', theme);
   }, [theme]);
+
+  // Keep chat scrolled to the latest message
+  useEffect(() => {
+    const container = chatScrollRef.current;
+    if (!container) return;
+    container.scrollTo({
+      top: container.scrollHeight,
+      behavior: 'smooth',
+    });
+  }, [messages]);
 
   // --- Gateway WebSocket Management ---
 
@@ -767,7 +778,10 @@ export default function AvatarInterface() {
           }`}>
             
             {/* Chat History */}
-            <div className="flex-1 min-h-0 max-h-[35vh] sm:max-h-[40vh] p-4 sm:p-5 overflow-y-auto flex flex-col gap-3 sm:gap-4 scroll-smooth">
+            <div
+              ref={chatScrollRef}
+              className="flex-1 min-h-0 max-h-[35vh] sm:max-h-[40vh] p-4 sm:p-5 overflow-y-auto flex flex-col gap-3 sm:gap-4 scroll-smooth"
+            >
               {messages.map((msg, i) => (
                 <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   <div className={`px-4 py-2.5 max-w-[85%] text-sm leading-relaxed shadow-sm transition-all duration-300 ${
