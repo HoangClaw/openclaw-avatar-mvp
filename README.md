@@ -9,19 +9,19 @@ Instead of a text terminal, the user engages with a lifelike digital entity that
 
 | Main Interface (Light) | Chat Experience |
 |:---:|:---:|
-| ![Main Light](public/screenshots/screenshot_main_light.png) | ![Chat](public/screenshots/screenshot_chat.png) |
+| <img src="public/screenshots/screenshot_main_light.png" width="400"> | <img src="public/screenshots/screenshot_chat.png" width="400"> |
 
 | Settings & Config | Fullscreen Mode |
 |:---:|:---:|
-| ![Settings](public/screenshots/screenshot_settings.png) | ![Fullscreen](public/screenshots/screenshot_fullscreen.png) |
+| <img src="public/screenshots/screenshot_settings.png" width="400"> | <img src="public/screenshots/screenshot_fullscreen.png" width="400"> |
 
 | Attachments & Tools | UI Variations (Gradient/Banner) |
 |:---:|:---:|
-| ![Attachments](public/screenshots/screenshot_attachment.png) | ![Gradient](public/screenshots/screenshot_gradient.png) |
+| <img src="public/screenshots/screenshot_attachment.png" width="400"> | <img src="public/screenshots/screenshot_gradient.png" width="400"> |
 
 | Light Mode | Minimal Banner |
 |:---:|:---:|
-| ![Light Mode](public/screenshots/screenshot_lightmode.png) | ![Banner](public/screenshots/screenshot_banner.png) |
+| <img src="public/screenshots/screenshot_lightmode.png" width="400"> | <img src="public/screenshots/screenshot_banner.png" width="400"> |
 
 ## System Architecture
 
