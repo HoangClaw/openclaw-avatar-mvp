@@ -47,6 +47,17 @@ function generateUUID(): string {
   return crypto.randomUUID();
 }
 
+function stripMarkdownForTts(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/\*(.+?)\*/g, '$1')
+    .replace(/`(.+?)`/g, '$1')
+    .replace(/^#+\s+/gm, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/\n+/g, ' ')
+    .trim();
+}
+
 export default function AvatarInterface() {
   const [isRecording, setIsRecording] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
@@ -72,6 +83,14 @@ export default function AvatarInterface() {
   const [gatewayUrl, setGatewayUrl] = useState('http://localhost:18789');
   const [apiKey, setApiKey] = useState('');
   const [theme, setTheme] = useState('dark');
+  const [elevenLabsApiKey, setElevenLabsApiKey] = useState('');
+  const [elevenLabsVoiceId, setElevenLabsVoiceId] = useState('pNInz6obpgDQGcFmaJgB');
+  const [elevenLabsTestResult, setElevenLabsTestResult] = useState<string | null>(null);
+
+  // ElevenLabs refs
+  const scribeWsRef = useRef<WebSocket | null>(null);
+  const scribeAudioCtxRef = useRef<AudioContext | null>(null);
+  const audioPlaybackRef = useRef<HTMLAudioElement | null>(null);
 
   // Gateway WebSocket State
   const wsRef = useRef<WebSocket | null>(null);
@@ -83,14 +102,33 @@ export default function AvatarInterface() {
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeRunsRef = useRef<Map<string, string>>(new Map()); // runId -> messageId
 
+  // Voice STT/TTS State
+  const [userTranscript, setUserTranscript] = useState('');
+  const [aiSpeakingText, setAiSpeakingText] = useState('');
+  const recognitionRef = useRef<{ stop: () => void; start: () => void } | null>(null);
+  const finalTranscriptRef = useRef<string>('');
+  const speakAiResponseRef = useRef<(text: string) => void>(() => {});
+  const isRecordingRef = useRef(false);
+  const isSpeakingRef = useRef(false);
+
+  const sttSupported =
+    typeof window !== 'undefined' &&
+    !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+  const ttsSupported =
+    typeof window !== 'undefined' && !!window.speechSynthesis;
+
   // Load saved settings from local storage on mount
   useEffect(() => {
     const savedUrl = localStorage.getItem('openclaw_gateway_url');
     const savedKey = localStorage.getItem('openclaw_api_key');
     const savedTheme = localStorage.getItem('openclaw_theme');
+    const savedElKey = localStorage.getItem('openclaw_elevenlabs_key');
+    const savedElVoice = localStorage.getItem('openclaw_elevenlabs_voice');
     if (savedUrl) setGatewayUrl(savedUrl);
     if (savedKey) setApiKey(savedKey);
     if (savedTheme) setTheme(savedTheme);
+    if (savedElKey) setElevenLabsApiKey(savedElKey);
+    if (savedElVoice) setElevenLabsVoiceId(savedElVoice);
   }, []);
 
   // Update theme in DOM and localStorage
@@ -109,6 +147,95 @@ export default function AvatarInterface() {
     });
   }, [messages]);
 
+  const speakAiResponse = useCallback(async (text: string) => {
+    if (!text?.trim()) return;
+    // Deduplicate: if already speaking this exact text, skip
+    if (isSpeakingRef.current) return;
+    const plain = stripMarkdownForTts(text);
+    if (!plain) return;
+
+    isSpeakingRef.current = true;
+
+    // Cancel any ongoing playback
+    if (audioPlaybackRef.current) {
+      audioPlaybackRef.current.pause();
+      audioPlaybackRef.current = null;
+    }
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+
+    if (elevenLabsApiKey) {
+      setAiSpeakingText(text);
+      try {
+        const res = await fetch('/api/tts', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-elevenlabs-api-key': elevenLabsApiKey,
+          },
+          body: JSON.stringify({ text: plain, voiceId: elevenLabsVoiceId }),
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          const detail = errData.detail;
+          const msg = typeof detail === 'string'
+            ? detail
+            : Array.isArray(detail)
+              ? detail.map((d: any) => d?.msg ?? d).join('; ')
+              : detail?.message ?? detail?.detail ?? errData.error ?? JSON.stringify(errData);
+          console.error('[TTS] ElevenLabs error:', res.status, errData);
+          throw new Error(`TTS ${res.status}: ${msg}`);
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audioPlaybackRef.current = audio;
+        audio.onended = () => {
+          setAiSpeakingText('');
+          isSpeakingRef.current = false;
+          URL.revokeObjectURL(url);
+          audioPlaybackRef.current = null;
+        };
+        audio.onerror = () => {
+          setAiSpeakingText('');
+          isSpeakingRef.current = false;
+          URL.revokeObjectURL(url);
+          audioPlaybackRef.current = null;
+        };
+        await audio.play();
+        return;
+      } catch (err) {
+        console.warn('ElevenLabs TTS failed, using browser voice:', err);
+        setAiSpeakingText('');
+        isSpeakingRef.current = false;
+      }
+    }
+
+    // Web Speech API (primary when no ElevenLabs key, or fallback when ElevenLabs fails)
+    if (!ttsSupported) {
+      isSpeakingRef.current = false;
+      return;
+    }
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      const utterance = new SpeechSynthesisUtterance(plain);
+      utterance.onstart = () => setAiSpeakingText(text);
+      utterance.onend = () => {
+        setAiSpeakingText('');
+        isSpeakingRef.current = false;
+      };
+      utterance.onerror = () => {
+        setAiSpeakingText('');
+        isSpeakingRef.current = false;
+      };
+      window.speechSynthesis.speak(utterance);
+    }
+  }, [elevenLabsApiKey, elevenLabsVoiceId, ttsSupported]);
+
+  useEffect(() => {
+    speakAiResponseRef.current = speakAiResponse;
+  }, [speakAiResponse]);
+
   // --- Gateway WebSocket Management ---
 
   const sendRequest = useCallback((method: string, params: any): Promise<any> => {
@@ -123,6 +250,52 @@ export default function AvatarInterface() {
       ws.send(JSON.stringify(frame));
     });
   }, []);
+
+  const sendUserMessageToAgent = useCallback(
+    async (text: string) => {
+      if (!text.trim()) return;
+      setMessages((prev) => [...prev, { role: 'user', text }]);
+      setIsTyping(true);
+      if (!gwConnected) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: 'ai',
+            text: 'Not connected to gateway. Check settings and try again.',
+          },
+        ]);
+        return;
+      }
+      const msgId =
+        'msg-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+      const idempotencyKey = 'idk-' + Date.now();
+      setMessages((prev) => [...prev, { role: 'ai', text: '...', id: msgId }]);
+      activeRunsRef.current.set(idempotencyKey, msgId);
+      try {
+        const result = await sendRequest('agent', {
+          message: text,
+          sessionKey: 'agent:main:main',
+          idempotencyKey,
+        });
+        const responseText = result?.result?.payloads?.[0]?.text;
+        if (responseText) {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === msgId ? { ...m, text: responseText } : m))
+          );
+          speakAiResponseRef.current(responseText);
+        }
+      } catch (err: any) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === msgId ? { ...m, text: `Error: ${err.message ?? 'unknown'}` } : m
+          )
+        );
+      } finally {
+        activeRunsRef.current.delete(idempotencyKey);
+      }
+    },
+    [gwConnected, sendRequest]
+  );
 
   const sendConnect = useCallback(async (ws: WebSocket, token: string) => {
     if (connectSentRef.current) return;
@@ -233,6 +406,7 @@ export default function AvatarInterface() {
               m.id === msgId ? { ...m, text: finalText } : m
             ));
             activeRunsRef.current.delete(runId);
+            speakAiResponseRef.current(finalText);
           }
         }
         return;
@@ -336,25 +510,149 @@ export default function AvatarInterface() {
 
   const handleVoiceToggle = async () => {
     if (isSettingsOpen) return;
-    
+
     if (!isRecording) {
-      // Start Recording & Audio Analysis
+      // Start Recording, Audio Analysis, and STT
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         streamRef.current = stream;
-        
-        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+
+        const audioContext = new (window.AudioContext ||
+          (window as any).webkitAudioContext)();
         const analyser = audioContext.createAnalyser();
         const source = audioContext.createMediaStreamSource(stream);
-        
+
         analyser.fftSize = 256;
         source.connect(analyser);
-        
+
         audioContextRef.current = audioContext;
         analyserRef.current = analyser;
-        
+
         setIsRecording(true);
         setIsTyping(false);
+        setUserTranscript('');
+        finalTranscriptRef.current = '';
+        isRecordingRef.current = true;
+
+        // Cancel any ongoing TTS before recording
+        if (audioPlaybackRef.current) {
+          audioPlaybackRef.current.pause();
+          audioPlaybackRef.current = null;
+        }
+        if (ttsSupported && typeof window !== 'undefined') {
+          window.speechSynthesis.cancel();
+        }
+        setAiSpeakingText('');
+
+        if (elevenLabsApiKey) {
+          // --- ElevenLabs Scribe Realtime STT ---
+          try {
+            const tokenRes = await fetch('/api/elevenlabs/token', {
+              method: 'POST',
+              headers: { 'x-elevenlabs-api-key': elevenLabsApiKey },
+            });
+            if (!tokenRes.ok) throw new Error('Failed to get Scribe token');
+            const { token } = await tokenRes.json();
+
+            const scribeWs = new WebSocket(
+              `wss://api.elevenlabs.io/v1/speech-to-text/realtime?token=${encodeURIComponent(token)}&model_id=scribe_v2_realtime&commit_strategy=vad&audio_format=pcm_16000&vad_silence_threshold_secs=0.6&vad_threshold=0.3&min_speech_duration_ms=80`
+            );
+            scribeWsRef.current = scribeWs;
+
+            let scribeReady = false;
+            scribeWs.onmessage = (ev) => {
+              try {
+                const msg = JSON.parse(ev.data as string);
+                if (msg.message_type === 'session_started') {
+                  scribeReady = true;
+                } else if (msg.message_type === 'partial_transcript' && msg.text) {
+                  setUserTranscript(finalTranscriptRef.current + msg.text);
+                } else if (msg.message_type === 'committed_transcript' && msg.text) {
+                  finalTranscriptRef.current += msg.text + ' ';
+                  setUserTranscript(finalTranscriptRef.current.trim());
+                } else if (msg.message_type === 'error' || msg.message_type === 'auth_error') {
+                  console.error('Scribe error:', msg.error);
+                }
+              } catch { /* ignore parse errors */ }
+            };
+
+            scribeWs.onerror = () => console.warn('Scribe WebSocket error');
+
+            // Stream PCM16 at 16000Hz via a dedicated AudioContext
+            const scribeCtx = new AudioContext({ sampleRate: 16000 });
+            scribeAudioCtxRef.current = scribeCtx;
+            const scribeSource = scribeCtx.createMediaStreamSource(stream);
+            // Smaller buffer (2048) for lower latency (~128ms per chunk)
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
+            const processor = scribeCtx.createScriptProcessor(2048, 1, 1);
+            processor.onaudioprocess = (e) => {
+              if (scribeWs.readyState !== WebSocket.OPEN || !scribeReady) return;
+              const float32 = e.inputBuffer.getChannelData(0);
+              const int16 = new Int16Array(float32.length);
+              for (let i = 0; i < float32.length; i++) {
+                int16[i] = Math.max(-32768, Math.min(32767, Math.round(float32[i] * 32767)));
+              }
+              const uint8 = new Uint8Array(int16.buffer);
+              let binary = '';
+              for (let i = 0; i < uint8.byteLength; i++) {
+                binary += String.fromCharCode(uint8[i]);
+              }
+              const audio_base_64 = btoa(binary);
+              scribeWs.send(JSON.stringify({
+                message_type: 'input_audio_chunk',
+                audio_base_64,
+                commit: false,
+                sample_rate: 16000,
+              }));
+            };
+            scribeSource.connect(processor);
+            processor.connect(scribeCtx.destination);
+          } catch (err) {
+            console.error('ElevenLabs Scribe setup error:', err);
+          }
+        } else if (sttSupported) {
+          // --- Web Speech API fallback ---
+          const SpeechRecognition =
+            (window as any).SpeechRecognition ||
+            (window as any).webkitSpeechRecognition;
+          const recognition = new SpeechRecognition();
+          recognition.continuous = true;
+          recognition.interimResults = true;
+          recognition.lang = navigator.language || 'en-US';
+
+          recognition.onresult = (event: any) => {
+            if (!event?.results?.length) return;
+            let interim = '';
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+              const result = event.results[i];
+              const transcript = result?.[0]?.transcript ?? '';
+              if (result?.isFinal) {
+                finalTranscriptRef.current += transcript;
+              } else {
+                interim = transcript;
+              }
+            }
+            setUserTranscript(finalTranscriptRef.current + interim);
+          };
+
+          recognition.onend = () => {
+            if (isRecordingRef.current && recognitionRef.current) {
+              try { recognition.start(); } catch { /* ignore */ }
+            }
+          };
+
+          recognition.onerror = (e: any) => {
+            const fatal = ['not-allowed', 'service-not-allowed', 'aborted'];
+            if (fatal.includes(e.error)) {
+              isRecordingRef.current = false;
+            } else if (e.error !== 'no-speech') {
+              console.warn('Speech recognition error:', e.error);
+            }
+          };
+
+          recognition.start();
+          recognitionRef.current = recognition;
+        }
 
         const bufferLength = analyser.frequencyBinCount;
         const dataArray = new Uint8Array(bufferLength);
@@ -362,15 +660,14 @@ export default function AvatarInterface() {
         const updateVolume = () => {
           if (!analyserRef.current) return;
           analyserRef.current.getByteFrequencyData(dataArray);
-          
+
           let sum = 0;
           for (let i = 0; i < bufferLength; i++) {
             sum += dataArray[i];
           }
           const average = sum / bufferLength;
-          // Normalize volume between 0 and 1 (with some sensitivity adjustment)
           setVolume(Math.min(1, average / 100));
-          
+
           animationFrameRef.current = requestAnimationFrame(updateVolume);
         };
 
@@ -379,9 +676,33 @@ export default function AvatarInterface() {
         console.error("Microphone access denied or error:", err);
       }
     } else {
-      // Stop Recording & Analysis
+      // Stop STT first to capture final transcript
+      isRecordingRef.current = false;
+
+      // Close Scribe WebSocket if active
+      if (scribeWsRef.current) {
+        scribeWsRef.current.close();
+        scribeWsRef.current = null;
+      }
+      if (scribeAudioCtxRef.current) {
+        scribeAudioCtxRef.current.close().catch(() => {});
+        scribeAudioCtxRef.current = null;
+      }
+
+      // Stop Web Speech API if active
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+        recognitionRef.current = null;
+      }
+
+      const transcriptToSend = finalTranscriptRef.current.trim();
       stopAudioAnalysis();
       setIsRecording(false);
+      setUserTranscript('');
+
+      if (transcriptToSend) {
+        sendUserMessageToAgent(transcriptToSend);
+      }
     }
   };
 
@@ -400,7 +721,28 @@ export default function AvatarInterface() {
 
   // Cleanup on unmount
   useEffect(() => {
-    return () => stopAudioAnalysis();
+    return () => {
+      stopAudioAnalysis();
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+        recognitionRef.current = null;
+      }
+      if (scribeWsRef.current) {
+        scribeWsRef.current.close();
+        scribeWsRef.current = null;
+      }
+      if (scribeAudioCtxRef.current) {
+        scribeAudioCtxRef.current.close().catch(() => {});
+        scribeAudioCtxRef.current = null;
+      }
+      if (audioPlaybackRef.current) {
+        audioPlaybackRef.current.pause();
+        audioPlaybackRef.current = null;
+      }
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+    };
   }, []);
 
   const handleChatToggle = () => {
@@ -465,6 +807,7 @@ export default function AvatarInterface() {
       setMessages(prev => prev.map(m =>
         m.id === msgId ? { ...m, text: outputText } : m
       ));
+      speakAiResponseRef.current(outputText);
     }
   };
 
@@ -551,9 +894,11 @@ export default function AvatarInterface() {
                 idempotencyKey,
               });
               if (result?.result?.payloads?.[0]?.text) {
+                const text = result.result.payloads[0].text;
                 setMessages(prev => prev.map(m =>
-                  m.id === msgId ? { ...m, text: result.result.payloads[0].text } : m
+                  m.id === msgId ? { ...m, text } : m
                 ));
+                speakAiResponseRef.current(text);
               }
             }
           } else {
@@ -566,9 +911,11 @@ export default function AvatarInterface() {
               idempotencyKey,
             });
             if (result?.result?.payloads?.[0]?.text) {
+              const text = result.result.payloads[0].text;
               setMessages(prev => prev.map(m =>
-                m.id === msgId ? { ...m, text: result.result.payloads[0].text } : m
+                m.id === msgId ? { ...m, text } : m
               ));
+              speakAiResponseRef.current(text);
             }
           }
         } catch (uploadErr: any) {
@@ -589,9 +936,11 @@ export default function AvatarInterface() {
           idempotencyKey,
         });
         if (result?.result?.payloads?.[0]?.text) {
+          const text = result.result.payloads[0].text;
           setMessages(prev => prev.map(m =>
-            m.id === msgId ? { ...m, text: result.result.payloads[0].text } : m
+            m.id === msgId ? { ...m, text } : m
           ));
+          speakAiResponseRef.current(text);
         }
       }
 
@@ -608,7 +957,31 @@ export default function AvatarInterface() {
   const saveSettings = () => {
     localStorage.setItem('openclaw_gateway_url', gatewayUrl);
     localStorage.setItem('openclaw_api_key', apiKey);
+    localStorage.setItem('openclaw_elevenlabs_key', elevenLabsApiKey);
+    localStorage.setItem('openclaw_elevenlabs_voice', elevenLabsVoiceId);
     setIsSettingsOpen(false);
+  };
+
+  const testElevenLabs = async () => {
+    setElevenLabsTestResult(null);
+    if (!elevenLabsApiKey.trim()) {
+      setElevenLabsTestResult('No API key entered');
+      return;
+    }
+    try {
+      const res = await fetch('/api/tts', {
+        method: 'GET',
+        headers: { 'x-elevenlabs-api-key': elevenLabsApiKey.trim() },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok) {
+        setElevenLabsTestResult('OK: TTS works');
+      } else {
+        setElevenLabsTestResult(`Error ${res.status}: ${JSON.stringify(data.detail ?? data.error ?? data)}`);
+      }
+    } catch (err: any) {
+      setElevenLabsTestResult(`Request failed: ${err.message}`);
+    }
   };
 
   return (
@@ -649,6 +1022,22 @@ export default function AvatarInterface() {
               clipRule="evenodd"
             />
           </svg>
+
+          {/* Live transcript overlay - center of main screen */}
+          {(userTranscript || aiSpeakingText || (isRecording && sttSupported)) && (
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[90vw] px-6 text-center z-20 pointer-events-none">
+              {(userTranscript || (isRecording && sttSupported)) && (
+                <p className="text-emerald-400 text-lg sm:text-xl font-medium drop-shadow-lg">
+                  {userTranscript || 'Listening...'}
+                </p>
+              )}
+              {aiSpeakingText && (
+                <p className="text-red-400 text-lg sm:text-xl font-medium drop-shadow-lg">
+                  {aiSpeakingText}
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Radial Gradient Overlay for Immersive Effect */}
           <div 
@@ -718,17 +1107,75 @@ export default function AvatarInterface() {
               
               <div className="space-y-2">
                 <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">API Key (Token)</label>
-                <input 
-                  type="password" 
+                <input
+                  type="password"
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
                   className={`w-full border rounded-xl px-4 py-3 focus:outline-none focus:ring-1 transition-all ${
-                    theme === 'dark' 
-                      ? 'bg-zinc-950 border-zinc-800 text-zinc-200 focus:border-zinc-600 focus:ring-zinc-600' 
+                    theme === 'dark'
+                      ? 'bg-zinc-950 border-zinc-800 text-zinc-200 focus:border-zinc-600 focus:ring-zinc-600'
                       : 'bg-zinc-50 border-zinc-200 text-zinc-900 focus:border-zinc-400 focus:ring-zinc-400'
                   }`}
                   placeholder="oc-..."
                 />
+              </div>
+
+              {/* Divider */}
+              <div className={`border-t pt-4 ${theme === 'dark' ? 'border-zinc-800' : 'border-zinc-100'}`}>
+                <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-4">ElevenLabs Voice (STT + TTS)</p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">ElevenLabs API Key</label>
+                <input
+                  type="password"
+                  value={elevenLabsApiKey}
+                  onChange={(e) => setElevenLabsApiKey(e.target.value)}
+                  className={`w-full border rounded-xl px-4 py-3 focus:outline-none focus:ring-1 transition-all ${
+                    theme === 'dark'
+                      ? 'bg-zinc-950 border-zinc-800 text-zinc-200 focus:border-zinc-600 focus:ring-zinc-600'
+                      : 'bg-zinc-50 border-zinc-200 text-zinc-900 focus:border-zinc-400 focus:ring-zinc-400'
+                  }`}
+                  placeholder="sk_..."
+                />
+                <p className={`text-xs ${theme === 'dark' ? 'text-zinc-600' : 'text-zinc-400'}`}>
+                  Needs TTS + Scribe (STT) permissions. Falls back to browser APIs if empty.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Voice ID</label>
+                <input
+                  type="text"
+                  value={elevenLabsVoiceId}
+                  onChange={(e) => setElevenLabsVoiceId(e.target.value)}
+                  className={`w-full border rounded-xl px-4 py-3 focus:outline-none focus:ring-1 transition-all font-mono text-sm ${
+                    theme === 'dark'
+                      ? 'bg-zinc-950 border-zinc-800 text-zinc-200 focus:border-zinc-600 focus:ring-zinc-600'
+                      : 'bg-zinc-50 border-zinc-200 text-zinc-900 focus:border-zinc-400 focus:ring-zinc-400'
+                  }`}
+                  placeholder="pNInz6obpgDQGcFmaJgB"
+                />
+                <p className={`text-xs ${theme === 'dark' ? 'text-zinc-600' : 'text-zinc-400'}`}>
+                  Default: Adam (free tier). Use library voice IDs only if you have a paid plan.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={testElevenLabs}
+                  className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
+                    theme === 'dark' ? 'bg-zinc-700 hover:bg-zinc-600 text-zinc-200' : 'bg-zinc-200 hover:bg-zinc-300 text-zinc-800'
+                  }`}
+                >
+                  Test ElevenLabs
+                </button>
+                {elevenLabsTestResult && (
+                  <span className={`text-sm ${elevenLabsTestResult.startsWith('OK') ? 'text-emerald-500' : 'text-amber-500'}`}>
+                    {elevenLabsTestResult}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -754,7 +1201,7 @@ export default function AvatarInterface() {
         <div className="mb-6 h-8 flex items-center">
            {isRecording ? (
              <span className="animate-pulse bg-red-500/20 text-red-400 px-4 py-1.5 rounded-full text-sm font-medium border border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.2)]">
-               Listening...
+               {sttSupported ? 'Listening...' : 'Listening (speech recognition not supported)'}
              </span>
            ) : isUploading ? (
              <span className="animate-pulse bg-blue-500/20 text-blue-400 px-4 py-1.5 rounded-full text-sm font-medium border border-blue-500/30 shadow-[0_0_15px_rgba(59,130,246,0.2)]">
