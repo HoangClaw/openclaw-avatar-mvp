@@ -5,6 +5,24 @@ This repository houses the Minimum Viable Product (MVP) frontend for the **OpenC
 
 Instead of a text terminal, the user engages with a lifelike digital entity that speaks, reacts, and emotes in real-time, bridging the gap between human and machine.
 
+## Screenshots (FE Development)
+
+| Main Interface (Light) | Chat Experience |
+|:---:|:---:|
+| ![Main Light](public/screenshots/screenshot_main_light.png) | ![Chat](public/screenshots/screenshot_chat.png) |
+
+| Settings & Config | Fullscreen Mode |
+|:---:|:---:|
+| ![Settings](public/screenshots/screenshot_settings.png) | ![Fullscreen](public/screenshots/screenshot_fullscreen.png) |
+
+| Attachments & Tools | UI Variations (Gradient/Banner) |
+|:---:|:---:|
+| ![Attachments](public/screenshots/screenshot_attachment.png) | ![Gradient](public/screenshots/screenshot_gradient.png) |
+
+| Light Mode | Minimal Banner |
+|:---:|:---:|
+| ![Light Mode](public/screenshots/screenshot_lightmode.png) | ![Banner](public/screenshots/screenshot_banner.png) |
+
 ## System Architecture
 
 This frontend acts as the "Face and Ears", while OpenClaw acts as the "Brain".
