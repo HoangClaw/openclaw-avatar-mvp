@@ -189,20 +189,25 @@ export default function AvatarInterface() {
         }
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
-        const audio = new Audio(url);
+        const audio = new Audio();
         audioPlaybackRef.current = audio;
-        audio.onended = () => {
+
+        const cleanup = () => {
           setAiSpeakingText('');
           isSpeakingRef.current = false;
           URL.revokeObjectURL(url);
           audioPlaybackRef.current = null;
         };
-        audio.onerror = () => {
-          setAiSpeakingText('');
-          isSpeakingRef.current = false;
-          URL.revokeObjectURL(url);
-          audioPlaybackRef.current = null;
-        };
+        audio.onended = cleanup;
+        audio.onerror = cleanup;
+
+        // Wait for enough data to be buffered before playing to avoid cutting the start
+        await new Promise<void>((resolve) => {
+          audio.addEventListener('canplaythrough', () => resolve(), { once: true });
+          audio.src = url;
+          audio.load();
+        });
+
         await audio.play();
         return;
       } catch (err) {
