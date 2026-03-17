@@ -1028,18 +1028,18 @@ export default function AvatarInterface() {
             />
           </svg>
 
-          {/* Live transcript overlay - center of main screen */}
+          {/* Live transcript overlay - center of main screen (same bubble effect as chat/file upload) */}
           {(userTranscript || aiSpeakingText || (isRecording && sttSupported)) && (
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[90vw] px-6 text-center z-20 pointer-events-none">
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[90vw] px-6 text-center z-20 pointer-events-none flex flex-col items-center gap-3">
               {(userTranscript || (isRecording && sttSupported)) && (
-                <p className="text-emerald-400 text-lg sm:text-xl font-medium drop-shadow-lg">
+                <div className="px-4 py-2.5 max-w-[85%] text-sm sm:text-base leading-relaxed shadow-sm transition-all duration-300 rounded-2xl rounded-tr-sm font-medium bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                   {userTranscript || 'Listening...'}
-                </p>
+                </div>
               )}
               {aiSpeakingText && (
-                <p className="text-red-400 text-lg sm:text-xl font-medium drop-shadow-lg">
+                <div className="px-4 py-2.5 max-w-[85%] text-sm sm:text-base leading-relaxed shadow-sm transition-all duration-300 rounded-2xl rounded-tl-sm font-medium bg-red-500/20 text-red-400 border border-red-500/30">
                   {aiSpeakingText}
-                </p>
+                </div>
               )}
             </div>
           )}
