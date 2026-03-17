@@ -7,21 +7,13 @@ Instead of a text terminal, the user engages with a lifelike digital entity that
 
 ## Screenshots (FE Development)
 
-| Main Interface (Light) | Chat Experience |
+| Main Interface (Dark) | Chat Experience |
 |:---:|:---:|
-| <img src="public/screenshots/screenshot_main_light.png" width="400"> | <img src="public/screenshots/screenshot_chat.png" width="400"> |
+| <img src="public/screenshots/screenshot_main_dark.png" width="400"> | <img src="public/screenshots/screenshot_chat.png" width="400"> |
 
-| Settings & Config | Fullscreen Mode |
+| Settings & Config | Light Mode |
 |:---:|:---:|
-| <img src="public/screenshots/screenshot_settings.png" width="400"> | <img src="public/screenshots/screenshot_fullscreen.png" width="400"> |
-
-| Attachments & Tools | UI Variations (Gradient/Banner) |
-|:---:|:---:|
-| <img src="public/screenshots/screenshot_attachment.png" width="400"> | <img src="public/screenshots/screenshot_gradient.png" width="400"> |
-
-| Light Mode | Minimal Banner |
-|:---:|:---:|
-| <img src="public/screenshots/screenshot_lightmode.png" width="400"> | <img src="public/screenshots/screenshot_banner.png" width="400"> |
+| <img src="public/screenshots/screenshot_settings.png" width="400"> | <img src="public/screenshots/screenshot_main_light.png" width="400"> |
 
 ## System Architecture
 
