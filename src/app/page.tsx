@@ -5,12 +5,16 @@ import { Mic, Keyboard, Send, MoreVertical, Cpu, X, Save, Paperclip, Sun, Moon }
 import { useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import dynamic from 'next/dynamic';
+import { lipsyncManager } from '@/lib/lipsync/lipsyncManager';
 import {
   loadOrCreateDeviceIdentity,
   buildDeviceAuthPayload,
   signDevicePayload,
   type DeviceIdentity,
 } from '@/lib/device-identity';
+
+const Experience = dynamic(() => import('@/components/Experience'), { ssr: false });
 
 const PDFJS_CDN_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.9.155';
 
@@ -190,13 +194,18 @@ export default function AvatarInterface() {
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
         const audio = new Audio();
+        audio.src = url;
         audioPlaybackRef.current = audio;
+
+        // Connect lipsync
+        lipsyncManager.connectAudio(audio);
 
         const cleanup = () => {
           setAiSpeakingText('');
           isSpeakingRef.current = false;
           URL.revokeObjectURL(url);
           audioPlaybackRef.current = null;
+          lipsyncManager.stopSimulated();
         };
         audio.onended = cleanup;
         audio.onerror = cleanup;
@@ -204,7 +213,6 @@ export default function AvatarInterface() {
         // Wait for enough data to be buffered before playing to avoid cutting the start
         await new Promise<void>((resolve) => {
           audio.addEventListener('canplaythrough', () => resolve(), { once: true });
-          audio.src = url;
           audio.load();
         });
 
@@ -224,14 +232,19 @@ export default function AvatarInterface() {
     }
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       const utterance = new SpeechSynthesisUtterance(plain);
-      utterance.onstart = () => setAiSpeakingText(text);
+      utterance.onstart = () => {
+        setAiSpeakingText(text);
+        lipsyncManager.startSimulated();
+      };
       utterance.onend = () => {
         setAiSpeakingText('');
         isSpeakingRef.current = false;
+        lipsyncManager.stopSimulated();
       };
       utterance.onerror = () => {
         setAiSpeakingText('');
         isSpeakingRef.current = false;
+        lipsyncManager.stopSimulated();
       };
       window.speechSynthesis.speak(utterance);
     }
@@ -1008,25 +1021,15 @@ export default function AvatarInterface() {
 
       {/* Full Screen Avatar Placeholder */}
       <div 
-        className={`absolute inset-0 flex items-center justify-center pointer-events-none transition-all duration-500 ${theme === 'dark' ? 'bg-zinc-800' : 'bg-zinc-200'}`} 
+        className={`absolute inset-0 pointer-events-none transition-all duration-500 ${theme === 'dark' ? 'bg-zinc-800' : 'bg-zinc-200'}`} 
         style={{ 
           transform: isSettingsOpen ? 'scale(1.05)' : 'scale(1)', 
           filter: isSettingsOpen ? 'blur(10px) brightness(0.4)' : 'none' 
         }}
       >
-         {/* Temporary SVG placeholder */}
-         <svg
-            className={`w-24 h-24 sm:w-40 sm:h-40 transition-colors duration-300 ${theme === 'dark' ? 'text-zinc-700' : 'text-zinc-400'}`}
-            fill="currentColor"
-            viewBox="0 0 20 20"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              fillRule="evenodd"
-              d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z"
-              clipRule="evenodd"
-            />
-          </svg>
+         <div className="w-full h-full">
+            <Experience />
+         </div>
 
           {/* Live transcript overlay - center of main screen (same bubble effect as chat/file upload) */}
           {(userTranscript || aiSpeakingText || (isRecording && sttSupported)) && (

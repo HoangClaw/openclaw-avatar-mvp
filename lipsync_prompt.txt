@@ -1,0 +1,92 @@
+You are a senior engineer integrating TTS-driven lipsync into a 3D web app.
+Use this repository as the reference implementation: repo link: https://github.com/wass08/wawa-lipsync
+or local folder is
+/Users/hoangleduc/Documents/[ez]/Coding/wawa-lipsync
+
+Goal
+- Explain how TTS audio becomes 3D model mouth movement (lipsync).
+- Provide implementation guidance for wiring a chatbot TTS response to the lipsync system.
+- Call out technical details and pitfalls to avoid.
+
+High-level pipeline (explain clearly)
+1) TTS generates audio (either as a URL, a Blob, or streamed audio).
+2) The audio is played in an HTML <audio> element.
+3) The audio element is connected to a Web Audio AnalyserNode.
+4) Frequency-domain features are extracted every animation frame.
+5) A viseme is selected from those features.
+6) The viseme is applied to morph targets (blendshapes) on the 3D model.
+
+How this repo does it
+- The library is in packages/wawa-lipsync.
+- The demo app is in examples/lipsync-demo.
+- The library exposes a Lipsync class and a VISEMES enum.
+- The demo shows how to connect an <audio> element, call processAudio() each frame, and map visemes to morph targets in a Three.js model.
+
+Key technical details to explain
+1) Audio connection and analysis:
+   - The Lipsync class creates an AudioContext and an AnalyserNode.
+   - connectAudio(audioElement) attaches the media element to the analyser.
+   - The analyser reads FFT frequency bins each frame.
+   - Bands (50–8000 Hz) are grouped and normalized.
+   - It computes spectral centroid and volume and keeps a short history.
+   - A simple scoring function picks a viseme (Oculus-style viseme names).
+   - A state machine (silence/vowel/plosive/fricative) is used to stabilize results.
+
+2) Visemes and morph targets:
+   - The viseme strings are keys like "viseme_aa", "viseme_PP", etc.
+   - Your 3D model must include morph targets with matching names.
+   - The demo uses a Ready Player Me/Wolf3D-style GLB that already has these targets.
+   - Each frame, it sets the active viseme to 1 and lerps others toward 0.
+   - Smoothing differs for vowels vs consonants to reduce jitter.
+
+3) Render loop:
+   - The demo uses requestAnimationFrame.
+   - Each frame: lipsyncManager.processAudio() updates features and viseme.
+   - Then the render loop applies morph target weights to the model.
+
+4) TTS integration (what to do in your chatbot app):
+   - After your chatbot generates a response, call your TTS service to get audio.
+   - Create or update an HTMLAudioElement:
+     - If you have a URL, set audio.src = url.
+     - If you have a Blob, set audio.src = URL.createObjectURL(blob).
+   - Call lipsyncManager.connectAudio(audio).
+   - Play the audio and begin the animation loop if it is not running.
+   - If you stream TTS audio, you can use the MediaSource API and still connect the element.
+
+5) Fallback strategy (for Browser TTS):
+   - Browser-native `window.speechSynthesis` does not provide an audio stream for Web Audio analysis.
+   - Implement a "Simulated" mode that randomly switches between vowel visemes.
+   - Trigger `lipsyncManager.startSimulated()` on the `onstart` event of the `SpeechSynthesisUtterance`.
+   - Trigger `lipsyncManager.stopSimulated()` on `onend` or `onerror`.
+   - This ensures the model's mouth moves even when backup TTS is active.
+
+Pitfalls and things to be careful about
+- Autoplay restrictions: browsers require user interaction before audio can play.
+- AudioContext starts suspended: call audioContext.resume() on a user gesture.
+- Do not connect the audio element before audio.src is valid.
+- If you reuse the same audio element for new responses, update src then reconnect.
+- The analyser uses FFT size 2048 by default; higher sizes increase latency.
+- Ensure your render loop is running even when audio is not playing, or start/stop on demand.
+- If your model lacks the required morph targets, visemes will do nothing.
+- For non-Ready Player Me models, you must map viseme names to the model’s blendshape names.
+- When using multiple audio sources, connect only one active source to the analyser at a time.
+
+Suggested integration steps (actionable checklist)
+1) Add wawa-lipsync to your app (or copy the code from packages/wawa-lipsync).
+2) Load a 3D model that includes viseme morph targets (same names as VISEMES).
+3) Create a Lipsync instance and a single HTMLAudioElement.
+4) On user gesture, resume audio context and start animation loop.
+5) On each chatbot response:
+   - Fetch or generate TTS audio.
+   - Set audio.src.
+   - Call lipsyncManager.connectAudio(audio).
+   - Play audio.
+6) In your render loop, set morph target influence based on lipsyncManager.viseme.
+
+If you need to cite the exact implementation, refer to:
+- packages/wawa-lipsync/src/lipsync.ts for feature extraction and viseme scoring.
+- packages/wawa-lipsync/src/visemes.ts for viseme names.
+- examples/lipsync-demo/src/components/Visualizer.jsx for audio hookup and processing loop.
+- examples/lipsync-demo/src/components/Avatar.jsx for morph target application.
+
+Your response should be complete and copy-pasteable into another project’s prompt file.
