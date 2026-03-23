@@ -103,12 +103,19 @@ export default function AvatarInterface() {
   const deviceRef = useRef<DeviceIdentity | null>(null);
   const connectSentRef = useRef(false);
   const connectNonceRef = useRef<string | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeRunsRef = useRef<Map<string, string>>(new Map()); // runId -> messageId
 
   // Voice STT/TTS State
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [userTranscript, setUserTranscript] = useState('');
+  const [userLiveWords, setUserLiveWords] = useState('');
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [aiSpeakingText, setAiSpeakingText] = useState('');
+  const [aiLiveWords, setAiLiveWords] = useState('');
+  const liveTranscriptTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const aiWordIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recognitionRef = useRef<{ stop: () => void; start: () => void } | null>(null);
   const finalTranscriptRef = useRef<string>('');
   const speakAiResponseRef = useRef<(text: string) => void>(() => {});
@@ -202,6 +209,8 @@ export default function AvatarInterface() {
 
         const cleanup = () => {
           setAiSpeakingText('');
+          setAiLiveWords('');
+          if (aiWordIntervalRef.current) clearInterval(aiWordIntervalRef.current);
           isSpeakingRef.current = false;
           URL.revokeObjectURL(url);
           audioPlaybackRef.current = null;
@@ -217,6 +226,20 @@ export default function AvatarInterface() {
         });
 
         await audio.play();
+
+        // Simple simulation of word highlighting for ElevenLabs
+        const words = plain.split(' ');
+        let wordIdx = 0;
+        setAiLiveWords(words[0]);
+        if (aiWordIntervalRef.current) clearInterval(aiWordIntervalRef.current);
+        aiWordIntervalRef.current = setInterval(() => {
+          wordIdx++;
+          if (wordIdx < words.length) {
+            setAiLiveWords(words[wordIdx]);
+          } else {
+            if (aiWordIntervalRef.current) clearInterval(aiWordIntervalRef.current);
+          }
+        }, 300); // 300ms per word is a rough average
         return;
       } catch (err) {
         console.warn('ElevenLabs TTS failed, using browser voice:', err);
@@ -236,13 +259,21 @@ export default function AvatarInterface() {
         setAiSpeakingText(text);
         lipsyncManager.startSimulated();
       };
+      utterance.onboundary = (event) => {
+        if (event.name === 'word') {
+          const word = plain.substring(event.charIndex).split(/\s+/)[0];
+          setAiLiveWords(word);
+        }
+      };
       utterance.onend = () => {
         setAiSpeakingText('');
+        setAiLiveWords('');
         isSpeakingRef.current = false;
         lipsyncManager.stopSimulated();
       };
       utterance.onerror = () => {
         setAiSpeakingText('');
+        setAiLiveWords('');
         isSpeakingRef.current = false;
         lipsyncManager.stopSimulated();
       };
@@ -549,6 +580,7 @@ export default function AvatarInterface() {
         setIsRecording(true);
         setIsTyping(false);
         setUserTranscript('');
+        setUserLiveWords('');
         finalTranscriptRef.current = '';
         isRecordingRef.current = true;
 
@@ -585,9 +617,15 @@ export default function AvatarInterface() {
                   scribeReady = true;
                 } else if (msg.message_type === 'partial_transcript' && msg.text) {
                   setUserTranscript(finalTranscriptRef.current + msg.text);
+                  setUserLiveWords(msg.text);
+                  if (liveTranscriptTimeoutRef.current) clearTimeout(liveTranscriptTimeoutRef.current);
+                  liveTranscriptTimeoutRef.current = setTimeout(() => setUserLiveWords(''), 2000);
                 } else if (msg.message_type === 'committed_transcript' && msg.text) {
                   finalTranscriptRef.current += msg.text + ' ';
                   setUserTranscript(finalTranscriptRef.current.trim());
+                  setUserLiveWords(msg.text);
+                  if (liveTranscriptTimeoutRef.current) clearTimeout(liveTranscriptTimeoutRef.current);
+                  liveTranscriptTimeoutRef.current = setTimeout(() => setUserLiveWords(''), 2000);
                 } else if (msg.message_type === 'error' || msg.message_type === 'auth_error') {
                   console.error('Scribe error:', msg.error);
                 }
@@ -646,8 +684,14 @@ export default function AvatarInterface() {
               const transcript = result?.[0]?.transcript ?? '';
               if (result?.isFinal) {
                 finalTranscriptRef.current += transcript;
+                setUserLiveWords(transcript);
+                if (liveTranscriptTimeoutRef.current) clearTimeout(liveTranscriptTimeoutRef.current);
+                liveTranscriptTimeoutRef.current = setTimeout(() => setUserLiveWords(''), 2000);
               } else {
                 interim = transcript;
+                setUserLiveWords(transcript);
+                if (liveTranscriptTimeoutRef.current) clearTimeout(liveTranscriptTimeoutRef.current);
+                liveTranscriptTimeoutRef.current = setTimeout(() => setUserLiveWords(''), 2000);
               }
             }
             setUserTranscript(finalTranscriptRef.current + interim);
@@ -717,6 +761,11 @@ export default function AvatarInterface() {
       stopAudioAnalysis();
       setIsRecording(false);
       setUserTranscript('');
+      setUserLiveWords('');
+      if (liveTranscriptTimeoutRef.current) {
+        clearTimeout(liveTranscriptTimeoutRef.current);
+        liveTranscriptTimeoutRef.current = null;
+      }
 
       if (transcriptToSend) {
         sendUserMessageToAgent(transcriptToSend);
@@ -756,6 +805,12 @@ export default function AvatarInterface() {
       if (audioPlaybackRef.current) {
         audioPlaybackRef.current.pause();
         audioPlaybackRef.current = null;
+      }
+      if (liveTranscriptTimeoutRef.current) {
+        clearTimeout(liveTranscriptTimeoutRef.current);
+      }
+      if (aiWordIntervalRef.current) {
+        clearInterval(aiWordIntervalRef.current);
       }
       if (typeof window !== 'undefined' && window.speechSynthesis) {
         window.speechSynthesis.cancel();
@@ -1032,16 +1087,16 @@ export default function AvatarInterface() {
          </div>
 
           {/* Live transcript overlay - center of main screen (same bubble effect as chat/file upload) */}
-          {(userTranscript || aiSpeakingText || (isRecording && sttSupported)) && (
+          {(userLiveWords || aiLiveWords || (isRecording && sttSupported)) && (
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[90vw] px-6 text-center z-20 pointer-events-none flex flex-col items-center gap-3">
-              {(userTranscript || (isRecording && sttSupported)) && (
+              {(userLiveWords || (isRecording && sttSupported)) && (
                 <div className="px-4 py-2.5 max-w-[85%] text-sm sm:text-base leading-relaxed shadow-sm transition-all duration-300 rounded-2xl rounded-tr-sm font-medium bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                  {userTranscript || 'Listening...'}
+                  {userLiveWords || 'Listening...'}
                 </div>
               )}
-              {aiSpeakingText && (
+              {aiLiveWords && (
                 <div className="px-4 py-2.5 max-w-[85%] text-sm sm:text-base leading-relaxed shadow-sm transition-all duration-300 rounded-2xl rounded-tl-sm font-medium bg-red-500/20 text-red-400 border border-red-500/30">
-                  {aiSpeakingText}
+                  {aiLiveWords}
                 </div>
               )}
             </div>
