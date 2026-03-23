@@ -23,17 +23,21 @@ This frontend acts as the "Face and Ears", while OpenClaw acts as the "Brain".
 
 ## Tech Stack (MVP)
 - **Frontend Framework:** Next.js 14 (App Router), React, Tailwind CSS, TypeScript.
-- **Speech-to-Text (STT):** ElevenLabs Scribe v2 Realtime (WebSocket) + Web Speech API fallback (Chrome/Edge).
+- **3D Engine:** Three.js, React Three Fiber (@react-three/fiber), React Three Drei (@react-three/drei).
+- **Lipsync System:** Custom Web Audio FFT analysis + Morph Target manipulation (Oculus-style visemes).
+- **Speech-to-Text (STT):** ElevenLabs Scribe v2 Realtime (WebSocket) + Web Speech API fallback.
 - **Text-to-Speech (TTS):** ElevenLabs API (proxied via Next.js `/api/tts`) + Web Speech API fallback.
 - **Backend Logic:** OpenClaw daemon (WebSocket/REST).
-- **AI Video Generation:** Planned (Simli / LivePortrait / HeyGen).
 
 ## Features
 
-- **Voice input:** Push-to-talk mic with live transcription (green text on main screen).
-- **Text input:** Chat window with keyboard input.
+- **3D Avatar:** Real-time rendered 3D character with idle animations and procedural eye blinking.
+- **Audio-Driven Lipsync:** Real-time mouth movement synchronized with TTS audio via frequency analysis.
+- **Simulated Lipsync Fallback:** Procedural lipsync for Browser-native TTS (Web Speech API) where direct audio analysis is restricted.
+- **Voice input:** Push-to-talk mic with rolling-window live transcription (green text).
+- **Text input:** Chat window with keyboard input and Markdown support.
 - **AI responses:** Streamed from OpenClaw via WebSocket or REST.
-- **Voice output:** ElevenLabs TTS with live transcript overlay (red text on main screen).
+- **Voice output:** ElevenLabs TTS with rolling-window transcript overlay (red text).
 - **Settings:** Gateway URL, OpenClaw API key, ElevenLabs API key + voice ID, light/dark theme.
 - **Attachments:** Image, PDF, and text file uploads.
 
@@ -62,12 +66,14 @@ Open [http://localhost:3000](http://localhost:3000) with your browser. Click the
 
 | Status | Item |
 |--------|------|
-| [x] | Web Speech API (STT) for push-to-talk |
 | [x] | ElevenLabs Scribe STT (cross-browser) |
 | [x] | ElevenLabs TTS with Web Speech fallback |
 | [x] | Connect to OpenClaw backend (WebSocket) |
-| [x] | Chat window with text + voice input |
-| [x] | Live transcript overlay (green/red) |
+| [x] | Rolling window live transcript overlay (green/red) |
+| [x] | 3D Avatar Rendering with Three.js |
+| [x] | Audio-driven Lipsync (FFT / Visemes) |
+| [x] | Simulated Lipsync Fallback for Browser TTS |
 | [x] | File attachments (image, PDF, text) |
-| [ ] | Photorealistic base portrait (Midjourney/Flux) |
-| [ ] | AI Video API (lip-sync, emotion) |
+| [ ] | Complex Emotion/Expression Mapping |
+| [ ] | Photo-realistic model textures and shaders |
+| [ ] | AI Video API Integration (optional fallback) |
