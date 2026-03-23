@@ -228,18 +228,21 @@ export default function AvatarInterface() {
         await audio.play();
 
         // Simple simulation of word highlighting for ElevenLabs
-        const words = plain.split(' ');
+        const words = plain.split(/\s+/);
         let wordIdx = 0;
-        setAiLiveWords(words[0]);
+        setAiLiveWords(words.slice(0, 10).join(' '));
         if (aiWordIntervalRef.current) clearInterval(aiWordIntervalRef.current);
         aiWordIntervalRef.current = setInterval(() => {
           wordIdx++;
           if (wordIdx < words.length) {
-            setAiLiveWords(words[wordIdx]);
+            // Show a window of context: current word plus some surrounding
+            const start = Math.max(0, wordIdx - 4);
+            const end = Math.min(words.length, wordIdx + 6);
+            setAiLiveWords(words.slice(start, end).join(' '));
           } else {
             if (aiWordIntervalRef.current) clearInterval(aiWordIntervalRef.current);
           }
-        }, 300); // 300ms per word is a rough average
+        }, 300); // 300ms per word average
         return;
       } catch (err) {
         console.warn('ElevenLabs TTS failed, using browser voice:', err);
@@ -261,8 +264,14 @@ export default function AvatarInterface() {
       };
       utterance.onboundary = (event) => {
         if (event.name === 'word') {
-          const word = plain.substring(event.charIndex).split(/\s+/)[0];
-          setAiLiveWords(word);
+          const currentPos = event.charIndex;
+          // Count words before currentPos to find current word index
+          const textBefore = plain.substring(0, currentPos);
+          const wordIdx = textBefore.split(/\s+/).length - 1;
+          const words = plain.split(/\s+/);
+          const start = Math.max(0, wordIdx - 4);
+          const end = Math.min(words.length, wordIdx + 6);
+          setAiLiveWords(words.slice(start, end).join(' '));
         }
       };
       utterance.onend = () => {
@@ -616,14 +625,18 @@ export default function AvatarInterface() {
                 if (msg.message_type === 'session_started') {
                   scribeReady = true;
                 } else if (msg.message_type === 'partial_transcript' && msg.text) {
-                  setUserTranscript(finalTranscriptRef.current + msg.text);
-                  setUserLiveWords(msg.text);
+                  const full = finalTranscriptRef.current + msg.text;
+                  setUserTranscript(full);
+                  const words = full.trim().split(/\s+/);
+                  setUserLiveWords(words.slice(-12).join(' '));
                   if (liveTranscriptTimeoutRef.current) clearTimeout(liveTranscriptTimeoutRef.current);
                   liveTranscriptTimeoutRef.current = setTimeout(() => setUserLiveWords(''), 2000);
                 } else if (msg.message_type === 'committed_transcript' && msg.text) {
                   finalTranscriptRef.current += msg.text + ' ';
-                  setUserTranscript(finalTranscriptRef.current.trim());
-                  setUserLiveWords(msg.text);
+                  const full = finalTranscriptRef.current.trim();
+                  setUserTranscript(full);
+                  const words = full.split(/\s+/);
+                  setUserLiveWords(words.slice(-12).join(' '));
                   if (liveTranscriptTimeoutRef.current) clearTimeout(liveTranscriptTimeoutRef.current);
                   liveTranscriptTimeoutRef.current = setTimeout(() => setUserLiveWords(''), 2000);
                 } else if (msg.message_type === 'error' || msg.message_type === 'auth_error') {
@@ -684,17 +697,16 @@ export default function AvatarInterface() {
               const transcript = result?.[0]?.transcript ?? '';
               if (result?.isFinal) {
                 finalTranscriptRef.current += transcript;
-                setUserLiveWords(transcript);
-                if (liveTranscriptTimeoutRef.current) clearTimeout(liveTranscriptTimeoutRef.current);
-                liveTranscriptTimeoutRef.current = setTimeout(() => setUserLiveWords(''), 2000);
               } else {
                 interim = transcript;
-                setUserLiveWords(transcript);
-                if (liveTranscriptTimeoutRef.current) clearTimeout(liveTranscriptTimeoutRef.current);
-                liveTranscriptTimeoutRef.current = setTimeout(() => setUserLiveWords(''), 2000);
               }
             }
-            setUserTranscript(finalTranscriptRef.current + interim);
+            const full = (finalTranscriptRef.current + interim).trim();
+            setUserTranscript(full);
+            const words = full.split(/\s+/);
+            setUserLiveWords(words.slice(-12).join(' '));
+            if (liveTranscriptTimeoutRef.current) clearTimeout(liveTranscriptTimeoutRef.current);
+            liveTranscriptTimeoutRef.current = setTimeout(() => setUserLiveWords(''), 2000);
           };
 
           recognition.onend = () => {
